@@ -38,4 +38,5 @@ anomalydetection
   |
   |---- Training-Normal-Videos-Part-2
   |     |---- Videos          : 370
+  -------
 ```
