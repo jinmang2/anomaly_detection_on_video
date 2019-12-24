@@ -12,3 +12,4 @@ This is we only know the video-level labels, i.e. a video is normal or contains 
 
 [Can Spatiotemporal 3D CNNs Retrace the History of 2D CNNs and ImageNet?](https://arxiv.org/abs/1711.09577)
 
+[Learning Spatiotemporal Features with 3D Convolution Networks](https://arxiv.org/abs/1412.0767)
