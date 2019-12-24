@@ -10,5 +10,5 @@ This is we only know the video-level labels, i.e. a video is normal or contains 
 
 [ranking loss](https://hyeonnii.tistory.com/277)
 
-
+[Can Spatiotemporal 3D CNNs Retrace the History of 2D CNNs and ImageNet?](https://arxiv.org/abs/1711.09577)
 
