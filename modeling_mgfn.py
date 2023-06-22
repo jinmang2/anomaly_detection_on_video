@@ -41,7 +41,7 @@ class MGFNFeedForward(nn.Module):
 class MGFNFeatureAmplifier(nn.Module):
     def __init__(self, config):
         super().__init__()
-        init_dim, *_, last_dim = config.dims
+        init_dim = config.dims[0]
         self.mag_ratio = config.mag_ratio
         self.to_tokens = nn.Conv1d(
             config.channels,
