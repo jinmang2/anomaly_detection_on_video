@@ -190,7 +190,7 @@ class MGFNIntermediate(nn.Module):
 
     def forward(self, x):
         x = self.layer_norm(x)
-        return self.layer(x)
+        return self.conv(x)
 
 
 class MGFNPreTrainedModel(PreTrainedModel):
