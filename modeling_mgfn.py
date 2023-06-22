@@ -26,16 +26,19 @@ class MGFNLayerNorm(nn.Module):
 class MGFNFeedForward(nn.Module):
     def __init__(self, dim, repe=4, dropout=0.0):
         super().__init__()
-        self.ffn = nn.Sequential(
-            MGFNLayerNorm(dim),
-            nn.Conv1d(dim, dim * repe, 1),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Conv1d(dim * repe, dim, 1),
-        )
+        self.layer_norm = MGFNLayerNorm(dim)
+        self.in_conv = nn.Conv1d(dim, dim * repe, 1)
+        self.gelu = nn.GELU(),
+        self.dropout = nn.Dropout(dropout)
+        self.out_conv = nn.Conv1d(dim * repe, dim, 1)
 
     def forward(self, x):
-        return self.ffn(x)
+        x = self.layer_norm(x)
+        x = self.in_conv(x)
+        x = self.gelu(x)
+        x = self.dropout(x)
+        out = self.out_conv(x)
+        return out
 
 
 class MGFNFeatureAmplifier(nn.Module):
@@ -182,11 +185,11 @@ class FocusBlock(nn.Module):
 class MGFNIntermediate(nn.Module):
     def __init__(self, in_dim, out_dim):
         super().__init__()
-        self.layer = nn.Sequential(
-            MGFNLayerNorm(in_dim), nn.Conv1d(in_dim, out_dim, 1, stride=1)
-        )
+        self.layer_norm = MGFNLayerNorm(in_dim)
+        self.conv = nn.Conv1d(in_dim, out_dim, 1, stride=1)
 
     def forward(self, x):
+        x = self.layer_norm(x)
         return self.layer(x)
 
 
