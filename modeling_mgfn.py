@@ -386,6 +386,7 @@ class MGFNForVideoAnomalyDedection(MGFNPreTrainedModel):
                 abnormal_labels=abnormal_labels[:bs],
                 normal_labels=normal_labels[:bs],
                 a_feat_magnitude=a_feat_magnitude,
+                n_feat_magnitude=n_feat_magnitude,
             )
             loss = loss_mgfn + loss_smooth + loss_sparsity
 
