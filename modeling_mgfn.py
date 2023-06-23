@@ -26,8 +26,8 @@ class MGFNModelOutput(ModelOutput):
 @dataclass
 class MGFNVideoAnomalyDetectionOutput(ModelOutput):
     loss: torch.FloatTensor = None
-    abnormal_score: torch.FloatTensor = None
-    normal_score: torch.FloatTensor = None
+    abnormal_scores: torch.FloatTensor = None
+    normal_scores: torch.FloatTensor = None
     a_feat_magnitude: torch.FloatTensor = None
     n_feat_magnitude: torch.FloatTensor = None
     scores: torch.FloatTensor = None
@@ -284,7 +284,20 @@ class MGFNForVideoAnomalyDedection(MGFNPreTrainedModel):
         self.layer_norm = nn.LayerNorm(last_dim)
         self.fc = nn.Linear(last_dim, 1)
         self.sigmoid = nn.Sigmoid()
+        self._force_split = True
         self.dropout = nn.Dropout(config.dropout_rate)
+
+    @property
+    def force_split(self) -> bool:
+        """
+        Whether or not to forcibly separate inputs
+        from abnormal and normal in the evaluation phase.
+        """
+        return self._force_split
+    
+    @force_split.setter
+    def force_split(self, val: bool):
+        self._force_split = val
 
     def magnitude_selection_and_score_prediction(
         self,
@@ -305,7 +318,7 @@ class MGFNForVideoAnomalyDedection(MGFNPreTrainedModel):
         # In the training loop, normal and abnormal are concated and inputted.
         # Since `batch_size` is doubled, slicing is performed here.
         # Make sure to enable data loader's `drop_last` attribute when training.
-        if self.training:
+        if self.force_split or self.training:
             normal_features = features[0 : batch_size // 2 * ncrops]
             abnormal_features = features[batch_size // 2 * ncrops :]
 
@@ -369,8 +382,8 @@ class MGFNForVideoAnomalyDedection(MGFNPreTrainedModel):
         scores = self.sigmoid(self.fc(x))
 
         (
-            abnormal_score,
-            normal_score,
+            abnormal_scores,
+            normal_scores,
             a_feat_magnitude,
             n_feat_magnitude,
             scores,
@@ -379,12 +392,12 @@ class MGFNForVideoAnomalyDedection(MGFNPreTrainedModel):
         loss = None
         if abnormal_labels is not None and normal_labels is not None:
             loss_smooth = TemporalSmoothnessLoss()(scores)
-            loss_sparsity = SparsityLoss()(scores[:bs, :, :].view(-1))
+            loss_sparsity = SparsityLoss()(scores[:bs // 2, :, :].view(-1))
             loss_mgfn = MGFNLoss()(
-                abnormal_score=abnormal_score,
-                normal_score=normal_score,
-                abnormal_labels=abnormal_labels[:bs],
-                normal_labels=normal_labels[:bs],
+                abnormal_scores=abnormal_scores,
+                normal_scores=normal_scores,
+                abnormal_labels=abnormal_labels,
+                normal_labels=normal_labels,
                 a_feat_magnitude=a_feat_magnitude,
                 n_feat_magnitude=n_feat_magnitude,
             )
@@ -392,8 +405,8 @@ class MGFNForVideoAnomalyDedection(MGFNPreTrainedModel):
 
         return MGFNVideoAnomalyDetectionOutput(
             loss=loss,
-            abnormal_score=abnormal_score,
-            normal_score=normal_score,
+            abnormal_scores=abnormal_scores,
+            normal_scores=normal_scores,
             a_feat_magnitude=a_feat_magnitude,
             n_feat_magnitude=n_feat_magnitude,
             scores=scores,
