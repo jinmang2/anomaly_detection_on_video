@@ -334,15 +334,15 @@ class MGFNForVideoAnomalyDedection(MGFNPreTrainedModel):
 
         def score_prediction(idx, scores):
             idx_score = idx.unsqueeze(dim=2).expand([-1, -1, scores.shape[2]])
-            score_abnormal = torch.mean(torch.gather(scores, 1, idx_score), dim=1)
-            return score_abnormal
+            score = torch.mean(torch.gather(scores, 1, idx_score), dim=1)
+            return score
 
-        abn_feamagnitude, idx_abn = magnitude_selection(
+        idx_abn, abn_feamagnitude = magnitude_selection(
             a_feat_magnitudes, abnormal_features
         )
         score_abnormal = score_prediction(idx_abn, abnormal_scores)
 
-        nor_feamagnitude, idx_normal = magnitude_selection(
+        idx_normal, nor_feamagnitude = magnitude_selection(
             n_feat_magnitudes, normal_features
         )
         score_normal = score_prediction(idx_normal, normal_scores)
@@ -352,7 +352,7 @@ class MGFNForVideoAnomalyDedection(MGFNPreTrainedModel):
     def forward(self, video: torch.FloatTensor) -> MGFNVideoAnomalyDetectionOutput:
         # @TODO: calc_loss
         bs, ncrops = video.size()[:2]
-        x_f = self.backbone(video).permute(0, 2, 1)
+        x_f = self.backbone(video).outputs.permute(0, 2, 1)
         x = self.layer_norm(x_f)
         scores = self.sigmoid(self.fc(x))
 
