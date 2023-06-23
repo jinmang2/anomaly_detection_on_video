@@ -18,6 +18,7 @@ class MGFNConfig(PretrainedConfig):
         dropout_rate=0.7,
         batch_size=16,
         mag_ratio=0.1,
+        k=3,
     ):
         super().__init__()
         self.classes = classes
@@ -34,3 +35,4 @@ class MGFNConfig(PretrainedConfig):
         self.dropout_rate = dropout_rate
         self.batch_size = batch_size
         self.mag_ratio = mag_ratio
+        self.k = k

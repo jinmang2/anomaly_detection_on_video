@@ -28,7 +28,7 @@ class MGFNFeedForward(nn.Module):
         super().__init__()
         self.layer_norm = MGFNLayerNorm(dim)
         self.in_conv = nn.Conv1d(dim, dim * repe, 1)
-        self.gelu = nn.GELU(),
+        self.gelu = nn.GELU()
         self.dropout = nn.Dropout(dropout)
         self.out_conv = nn.Conv1d(dim * repe, dim, 1)
 
@@ -204,6 +204,7 @@ class MGFNPreTrainedModel(PreTrainedModel):
     def dummy_inputs(self):
         # @TODO: fixed tensor
         # (batch_size, n_crops, n_clips, feature_dim)
+        # ncrops == 10
         return torch.randn(32, 10, 32, 2049)
 
 
@@ -225,7 +226,9 @@ class MGFNModel(MGFNPreTrainedModel):
             elif mgfn_type == "fb":
                 block_cls = FocusBlock
             else:
-                raise AttributeError
+                raise AttributeError(
+                    "The type of mgfn block must be either `gb` or `fb`."
+                )
 
             block = block_cls(config, dim=stage_dim, heads=heads)
             blocks.append(block)
@@ -243,4 +246,121 @@ class MGFNModel(MGFNPreTrainedModel):
 
 
 class MGFNForVideoAnomalyDedection(MGFNPreTrainedModel):
-    pass
+    def __init__(self, config):
+        super().__init__(config)
+        
+        self.k = config.k
+        self.batch_size = config.batch_size
+        last_dim = config.dims[-1]
+
+        self.backbone = MGFNModel(config)
+
+        self.layer_norm = nn.LayerNorm(last_dim)
+        self.fc = nn.Linear(last_dim, 1)
+        self.sigmoid = nn.Sigmoid()
+        self.dropout = nn.Dropout(config.dropout_rate)
+
+    def magnitude_selection_and_score_prediction(
+        self, features, scores, bs, ncrops,
+    ):
+        # @TODO: batch inference, abn/nor split, code 중복 해소
+        device = features.device
+        bc, t, f = features.size()
+
+        scores = scores.view(bs, ncrops, -1).mean(dim=1)
+        scores = scores.unsqueeze(dim=2)
+
+        normal_features = features[0:self.batch_size * 10]
+        normal_scores = scores[0:self.batch_size]
+
+        abnormal_features = features[self.batch_size * 10:]
+        abnormal_scores = scores[self.batch_size:]
+
+        feat_magnitudes = torch.norm(features, p=2, dim=2)
+        feat_magnitudes = feat_magnitudes.view(bs, ncrops, -1).mean(dim=1)
+        n_feat_magnitudes = feat_magnitudes[0:self.batch_size]
+        a_feat_magnitudes = feat_magnitudes[self.batch_size:]
+        n_size = n_feat_magnitudes.shape[0]
+
+        if n_feat_magnitudes.shape[0] == 1:  # this is for inference
+            a_feat_magnitudes = n_feat_magnitudes
+            abnormal_scores = normal_scores
+            abnormal_features = normal_features
+
+        select_idx = torch.ones_like(n_feat_magnitudes, device=device)
+        select_idx = self.dropout(select_idx)
+
+        a_feat_magnitudes_drop = a_feat_magnitudes * select_idx
+        idx_abn = torch.topk(a_feat_magnitudes_drop, self.k, dim=1)[1]
+        idx_abn_feat = idx_abn.unsqueeze(dim=2).expand([-1, -1, abnormal_features.shape[2]])
+
+        abnormal_features = abnormal_features.view(n_size, ncrops, t, f)
+        abnormal_features = abnormal_features.permute(1, 0, 2, 3)
+
+        total_select_abn_feature = torch.zeros(0, device=device)
+        for abnormal_feature in abnormal_features:
+            feat_select_abn = torch.gather(
+                abnormal_feature, 1, idx_abn_feat,
+            )
+            total_select_abn_feature = torch.cat(
+                [total_select_abn_feature, feat_select_abn]
+            )
+        idx_abn_score = idx_abn.unsqueeze(dim=2).expand([-1, -1, abnormal_scores.shape[2]])
+        score_abnormal = torch.mean(
+            torch.gather(abnormal_scores, 1, idx_abn_score),
+            dim=1,
+        )
+
+        select_idx_normal = torch.ones_like(n_feat_magnitudes, device=device)
+        select_idx_normal = self.dropout(select_idx_normal)
+        
+        n_feat_magnitudes_drop = n_feat_magnitudes * select_idx_normal
+        idx_normal = torch.topk(n_feat_magnitudes_drop, self.k, dim=1)[1]
+        idx_normal_feat = idx_normal.unsqueeze(dim=2).expand([-1, -1, normal_features.shape[2]])
+
+        normal_features = normal_features.view(n_size, ncrops, t, f)
+        normal_features = normal_features.permute(1, 0, 2, 3)
+
+        total_select_nor_feature = torch.zeros(0, device=device)
+        for normal_feature in normal_features:
+            feat_select_normal = torch.gather(
+                normal_feature, 1, idx_normal_feat,
+            )
+            total_select_nor_feature = torch.cat(
+                [total_select_nor_feature, feat_select_normal]
+            )
+        idx_normal_score = idx_normal.unsqueeze(dim=2).expand([-1, -1, normal_scores.shape[2]])
+        score_normal = torch.mean(
+            torch.gather(normal_scores, 1, idx_normal_score),
+            dim=1,
+        )
+
+        abn_feamagnitude = total_select_abn_feature
+        nor_feamagnitude = total_select_nor_feature
+
+        return score_abnormal, score_normal, abn_feamagnitude, nor_feamagnitude, scores
+
+    def forward(self, video):
+        # @TODO: calc_loss, output format, msnsd method
+        bs, ncrops = video.size()[:2]
+        x_f = self.backbone(video).permute(0, 2, 1)
+        x = self.layer_norm(x_f)
+        score = self.sigmoid(self.fc(x))
+        
+        (
+            score_abnormal,
+            score_normal,
+            abn_feamagnitude,
+            nor_feamagnitude,
+            scores,
+        ) = self.magnitude_selection_and_score_prediction(
+            x, score, bs, self.batch_size, ncrops,
+        )
+
+        return (
+            score_abnormal,
+            score_normal,
+            abn_feamagnitude,
+            nor_feamagnitude,
+            scores,
+        )
