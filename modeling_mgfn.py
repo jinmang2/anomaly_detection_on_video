@@ -354,7 +354,7 @@ class MGFNForVideoAnomalyDedection(MGFNPreTrainedModel):
             nor_feamagnitude,
             scores,
         ) = self.magnitude_selection_and_score_prediction(
-            x, score, bs, self.batch_size, ncrops,
+            x, score, bs, ncrops,
         )
 
         return (
