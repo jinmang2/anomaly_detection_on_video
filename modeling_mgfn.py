@@ -11,7 +11,7 @@ from configuration_mgfn import MGFNConfig
 
 
 class MGFNLayerNorm(nn.Module):
-    def __init__(self, dim, eps=1e-5):
+    def __init__(self, dim: int, eps: float = 1e-5):
         super().__init__()
         self.eps = eps
         self.g = nn.Parameter(torch.ones(1, dim, 1))
@@ -24,7 +24,7 @@ class MGFNLayerNorm(nn.Module):
 
 
 class MGFNFeedForward(nn.Module):
-    def __init__(self, dim, repe=4, dropout=0.0):
+    def __init__(self, dim: int, repe: int = 4, dropout: float = 0.0):
         super().__init__()
         self.layer_norm = MGFNLayerNorm(dim)
         self.in_conv = nn.Conv1d(dim, dim * repe, 1)
@@ -71,7 +71,7 @@ class MGFNFeatureAmplifier(nn.Module):
 
 
 class GlanceAttention(nn.Module):
-    def __init__(self, dim, heads, dim_head):
+    def __init__(self, dim: int, heads: int, dim_head: int):
         super().__init__()
         self.heads = heads
         self.scale = dim_head**-0.5
@@ -103,7 +103,7 @@ class GlanceAttention(nn.Module):
 class GlanceBlock(nn.Module):
     """MGFN component to learn the global correlatoin among clips."""
 
-    def __init__(self, config, dim, heads):
+    def __init__(self, config, dim: int, heads: int):
         super().__init__()
         # shortcut convolution
         self.scc = nn.Conv1d(dim, dim, 3, padding=1)
@@ -132,7 +132,7 @@ class FocusAttention(nn.Module):
         without any learnable weights
     """
 
-    def __init__(self, dim, heads, dim_head, local_aggr_kernel):
+    def __init__(self, dim: int, heads: int, dim_head: int, local_aggr_kernel: int):
         super().__init__()
         self.heads = heads
         inner_dim = dim_head * heads
@@ -229,7 +229,7 @@ class MGFNModel(MGFNPreTrainedModel):
                 raise AttributeError(
                     "The type of mgfn block must be either `gb` or `fb`."
                 )
-            
+
             blocks = []
             for _ in range(depth):
                 block = block_cls(config, dim=stage_dim, heads=heads)
@@ -252,9 +252,8 @@ class MGFNModel(MGFNPreTrainedModel):
 class MGFNForVideoAnomalyDedection(MGFNPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
-        
+
         self.k = config.k
-        self.batch_size = config.batch_size
         last_dim = config.dims[-1]
 
         self.backbone = MGFNModel(config)
@@ -265,101 +264,90 @@ class MGFNForVideoAnomalyDedection(MGFNPreTrainedModel):
         self.dropout = nn.Dropout(config.dropout_rate)
 
     def magnitude_selection_and_score_prediction(
-        self, features, scores, bs, ncrops,
+        self,
+        features,
+        scores,
+        batch_size,
+        ncrops,
     ):
-        # @TODO: batch inference, abn/nor split, code 중복 해소
         device = features.device
-        bc, t, f = features.size()
-
-        scores = scores.view(bs, ncrops, -1).mean(dim=1)
-        scores = scores.unsqueeze(dim=2)
-
-        normal_features = features[0:self.batch_size * 10]
-        normal_scores = scores[0:self.batch_size]
-
-        abnormal_features = features[self.batch_size * 10:]
-        abnormal_scores = scores[self.batch_size:]
+        _, t, f = features.size()
 
         feat_magnitudes = torch.norm(features, p=2, dim=2)
-        feat_magnitudes = feat_magnitudes.view(bs, ncrops, -1).mean(dim=1)
-        n_feat_magnitudes = feat_magnitudes[0:self.batch_size]
-        a_feat_magnitudes = feat_magnitudes[self.batch_size:]
+        feat_magnitudes = feat_magnitudes.view(batch_size, ncrops, -1).mean(dim=1)
+
+        scores = scores.view(batch_size, ncrops, -1).mean(dim=1)
+        scores = scores.unsqueeze(dim=2)
+
+        # In the training loop, normal and abnormal are concated and inputted.
+        # Since `batch_size` is doubled, slicing is performed here.
+        # Make sure to enable data loader's `drop_last` attribute when training.
+        if self.training:
+            normal_features = features[0 : batch_size // 2 * ncrops]
+            abnormal_features = features[batch_size // 2 * ncrops :]
+
+            normal_scores = scores[0 : batch_size // 2]
+            abnormal_scores = scores[batch_size // 2 :]
+
+            n_feat_magnitudes = feat_magnitudes[0 : batch_size // 2]
+            a_feat_magnitudes = feat_magnitudes[batch_size // 2 :]
+        # for inference
+        else:
+            normal_features = abnormal_features = features
+            normal_scores = abnormal_scores = scores
+            n_feat_magnitudes = a_feat_magnitudes = feat_magnitudes
+
         n_size = n_feat_magnitudes.shape[0]
 
-        if n_feat_magnitudes.shape[0] == 1:  # this is for inference
-            a_feat_magnitudes = n_feat_magnitudes
-            abnormal_scores = normal_scores
-            abnormal_features = normal_features
+        def magnitude_selection(feat_magnitudes, features):
+            select_idx = torch.ones_like(feat_magnitudes, device=device)
+            select_idx = self.dropout(select_idx)
 
-        select_idx = torch.ones_like(n_feat_magnitudes, device=device)
-        select_idx = self.dropout(select_idx)
+            feat_magnitudes_drop = feat_magnitudes * select_idx
+            idx = torch.topk(feat_magnitudes_drop, self.k, dim=1)[1]
+            idx_feat = idx.unsqueeze(dim=2).expand([-1, -1, features.shape[2]])
 
-        a_feat_magnitudes_drop = a_feat_magnitudes * select_idx
-        idx_abn = torch.topk(a_feat_magnitudes_drop, self.k, dim=1)[1]
-        idx_abn_feat = idx_abn.unsqueeze(dim=2).expand([-1, -1, abnormal_features.shape[2]])
+            features = features.view(n_size, ncrops, t, f)
+            features = features.permute(1, 0, 2, 3)
 
-        abnormal_features = abnormal_features.view(n_size, ncrops, t, f)
-        abnormal_features = abnormal_features.permute(1, 0, 2, 3)
+            total_select_feature = torch.zeros(0, device=device)
+            for feature in features:
+                feat_select = torch.gather(feature, 1, idx_feat)
+                total_select_feature = torch.cat([total_select_feature, feat_select])
 
-        total_select_abn_feature = torch.zeros(0, device=device)
-        for abnormal_feature in abnormal_features:
-            feat_select_abn = torch.gather(
-                abnormal_feature, 1, idx_abn_feat,
-            )
-            total_select_abn_feature = torch.cat(
-                [total_select_abn_feature, feat_select_abn]
-            )
-        idx_abn_score = idx_abn.unsqueeze(dim=2).expand([-1, -1, abnormal_scores.shape[2]])
-        score_abnormal = torch.mean(
-            torch.gather(abnormal_scores, 1, idx_abn_score),
-            dim=1,
+            return idx, total_select_feature
+
+        def score_prediction(idx, scores):
+            idx_score = idx.unsqueeze(dim=2).expand([-1, -1, scores.shape[2]])
+            score_abnormal = torch.mean(torch.gather(scores, 1, idx_score), dim=1)
+            return score_abnormal
+
+        abn_feamagnitude, idx_abn = magnitude_selection(
+            a_feat_magnitudes, abnormal_features
         )
+        score_abnormal = score_prediction(idx_abn, abnormal_scores)
 
-        select_idx_normal = torch.ones_like(n_feat_magnitudes, device=device)
-        select_idx_normal = self.dropout(select_idx_normal)
-        
-        n_feat_magnitudes_drop = n_feat_magnitudes * select_idx_normal
-        idx_normal = torch.topk(n_feat_magnitudes_drop, self.k, dim=1)[1]
-        idx_normal_feat = idx_normal.unsqueeze(dim=2).expand([-1, -1, normal_features.shape[2]])
-
-        normal_features = normal_features.view(n_size, ncrops, t, f)
-        normal_features = normal_features.permute(1, 0, 2, 3)
-
-        total_select_nor_feature = torch.zeros(0, device=device)
-        for normal_feature in normal_features:
-            feat_select_normal = torch.gather(
-                normal_feature, 1, idx_normal_feat,
-            )
-            total_select_nor_feature = torch.cat(
-                [total_select_nor_feature, feat_select_normal]
-            )
-        idx_normal_score = idx_normal.unsqueeze(dim=2).expand([-1, -1, normal_scores.shape[2]])
-        score_normal = torch.mean(
-            torch.gather(normal_scores, 1, idx_normal_score),
-            dim=1,
+        nor_feamagnitude, idx_normal = magnitude_selection(
+            n_feat_magnitudes, normal_features
         )
-
-        abn_feamagnitude = total_select_abn_feature
-        nor_feamagnitude = total_select_nor_feature
+        score_normal = score_prediction(idx_normal, normal_scores)
 
         return score_abnormal, score_normal, abn_feamagnitude, nor_feamagnitude, scores
 
     def forward(self, video):
-        # @TODO: calc_loss, output format, msnsd method
+        # @TODO: calc_loss, output format
         bs, ncrops = video.size()[:2]
         x_f = self.backbone(video).permute(0, 2, 1)
         x = self.layer_norm(x_f)
         scores = self.sigmoid(self.fc(x))
-        
+
         (
             score_abnormal,
             score_normal,
             abn_feamagnitude,
             nor_feamagnitude,
             scores,
-        ) = self.magnitude_selection_and_score_prediction(
-            x, scores, bs, ncrops,
-        )
+        ) = self.magnitude_selection_and_score_prediction(x, scores, bs, ncrops)
 
         return (
             score_abnormal,
