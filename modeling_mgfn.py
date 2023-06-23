@@ -216,7 +216,7 @@ class MGFNModel(MGFNPreTrainedModel):
 
         self.amplifier = MGFNFeatureAmplifier(config)
 
-        blocks = []
+        layers = []
         for ind, (depth, mgfn_type) in enumerate(zip(depths, mgfn_types)):
             stage_dim = config.dims[ind]
             heads = stage_dim // config.dim_head
@@ -229,19 +229,23 @@ class MGFNModel(MGFNPreTrainedModel):
                 raise AttributeError(
                     "The type of mgfn block must be either `gb` or `fb`."
                 )
-
-            block = block_cls(config, dim=stage_dim, heads=heads)
-            blocks.append(block)
+            
+            blocks = []
+            for _ in range(depth):
+                block = block_cls(config, dim=stage_dim, heads=heads)
+                blocks.append(block)
 
             if ind != len(depths) - 1:
                 intermediate = MGFNIntermediate(stage_dim, config.dims[ind + 1])
                 blocks.append(intermediate)
 
-        self.blocks = nn.Sequential(*blocks)
+            layers.append(nn.Sequential(*blocks))
+
+        self.layers = nn.Sequential(*layers)
 
     def forward(self, x):
         x = self.amplifier(x)
-        out = self.blocks(x)
+        out = self.layers(x)
         return out
 
 
@@ -345,7 +349,7 @@ class MGFNForVideoAnomalyDedection(MGFNPreTrainedModel):
         bs, ncrops = video.size()[:2]
         x_f = self.backbone(video).permute(0, 2, 1)
         x = self.layer_norm(x_f)
-        score = self.sigmoid(self.fc(x))
+        scores = self.sigmoid(self.fc(x))
         
         (
             score_abnormal,
@@ -354,7 +358,7 @@ class MGFNForVideoAnomalyDedection(MGFNPreTrainedModel):
             nor_feamagnitude,
             scores,
         ) = self.magnitude_selection_and_score_prediction(
-            x, score, bs, ncrops,
+            x, scores, bs, ncrops,
         )
 
         return (
