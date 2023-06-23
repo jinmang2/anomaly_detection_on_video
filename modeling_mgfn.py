@@ -3,11 +3,26 @@ from torch import nn
 from torch import nn, einsum
 from einops import rearrange
 
-import transformers
+from dataclasses import dataclass
+
 from transformers import PreTrainedModel
 from transformers.file_utils import ModelOutput
 
 from configuration_mgfn import MGFNConfig
+
+
+@dataclass
+class MGFNModelOutput(ModelOutput):
+    outputs: torch.FloatTensor = None
+
+
+@dataclass
+class MGFNVideoAnomalyDetectionOutput(ModelOutput):
+    abnormal_score: torch.FloatTensor = None
+    normal_score: torch.FloatTensor = None
+    a_feat_magnitude: torch.FloatTensor = None
+    n_feat_magnitude: torch.FloatTensor = None
+    scores: torch.FloatTensor = None
 
 
 class MGFNLayerNorm(nn.Module):
@@ -243,10 +258,10 @@ class MGFNModel(MGFNPreTrainedModel):
 
         self.layers = nn.Sequential(*layers)
 
-    def forward(self, x):
+    def forward(self, x: torch.FloatTensor) -> MGFNModelOutput:
         x = self.amplifier(x)
         out = self.layers(x)
-        return out
+        return MGFNModelOutput(outputs=out)
 
 
 class MGFNForVideoAnomalyDedection(MGFNPreTrainedModel):
@@ -334,25 +349,25 @@ class MGFNForVideoAnomalyDedection(MGFNPreTrainedModel):
 
         return score_abnormal, score_normal, abn_feamagnitude, nor_feamagnitude, scores
 
-    def forward(self, video):
-        # @TODO: calc_loss, output format
+    def forward(self, video: torch.FloatTensor) -> MGFNVideoAnomalyDetectionOutput:
+        # @TODO: calc_loss
         bs, ncrops = video.size()[:2]
         x_f = self.backbone(video).permute(0, 2, 1)
         x = self.layer_norm(x_f)
         scores = self.sigmoid(self.fc(x))
 
         (
-            score_abnormal,
-            score_normal,
-            abn_feamagnitude,
-            nor_feamagnitude,
+            abnormal_score,
+            normal_score,
+            a_feat_magnitude,
+            n_feat_magnitude,
             scores,
         ) = self.magnitude_selection_and_score_prediction(x, scores, bs, ncrops)
 
-        return (
-            score_abnormal,
-            score_normal,
-            abn_feamagnitude,
-            nor_feamagnitude,
-            scores,
+        return MGFNVideoAnomalyDetectionOutput(
+            abnormal_score=abnormal_score,
+            normal_score=normal_score,
+            a_feat_magnitude=a_feat_magnitude,
+            n_feat_magnitude=n_feat_magnitude,
+            scores=scores,
         )

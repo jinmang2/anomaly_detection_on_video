@@ -16,7 +16,6 @@ class MGFNConfig(PretrainedConfig):
         dropout=0.0,
         attention_dropout=0.0,
         dropout_rate=0.7,
-        batch_size=16,
         mag_ratio=0.1,
         k=3,
     ):
@@ -33,6 +32,5 @@ class MGFNConfig(PretrainedConfig):
         self.dropout = dropout
         self.attention_dropout = attention_dropout
         self.dropout_rate = dropout_rate
-        self.batch_size = batch_size
         self.mag_ratio = mag_ratio
         self.k = k
