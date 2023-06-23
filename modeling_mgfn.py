@@ -1,3 +1,5 @@
+from typing import Optional
+
 import torch
 from torch import nn
 from torch import nn, einsum
@@ -9,6 +11,11 @@ from transformers import PreTrainedModel
 from transformers.file_utils import ModelOutput
 
 from configuration_mgfn import MGFNConfig
+from loss_mgfn import (
+    TemporalSmoothnessLoss,
+    SparsityLoss,
+    MGFNLoss,
+)
 
 
 @dataclass
@@ -18,6 +25,7 @@ class MGFNModelOutput(ModelOutput):
 
 @dataclass
 class MGFNVideoAnomalyDetectionOutput(ModelOutput):
+    loss: torch.FloatTensor = None
     abnormal_score: torch.FloatTensor = None
     normal_score: torch.FloatTensor = None
     a_feat_magnitude: torch.FloatTensor = None
@@ -349,8 +357,12 @@ class MGFNForVideoAnomalyDedection(MGFNPreTrainedModel):
 
         return score_abnormal, score_normal, abn_feamagnitude, nor_feamagnitude, scores
 
-    def forward(self, video: torch.FloatTensor) -> MGFNVideoAnomalyDetectionOutput:
-        # @TODO: calc_loss
+    def forward(
+        self,
+        video: torch.FloatTensor,
+        abnormal_labels: Optional[torch.FloatTensor] = None,
+        normal_labels: Optional[torch.FloatTensor] = None,
+    ) -> MGFNVideoAnomalyDetectionOutput:
         bs, ncrops = video.size()[:2]
         x_f = self.backbone(video).outputs.permute(0, 2, 1)
         x = self.layer_norm(x_f)
@@ -364,7 +376,21 @@ class MGFNForVideoAnomalyDedection(MGFNPreTrainedModel):
             scores,
         ) = self.magnitude_selection_and_score_prediction(x, scores, bs, ncrops)
 
+        loss = None
+        if abnormal_labels is not None and normal_labels is not None:
+            loss_smooth = TemporalSmoothnessLoss()(scores)
+            loss_sparsity = SparsityLoss()(scores[:bs, :, :].view(-1))
+            loss_mgfn = MGFNLoss()(
+                abnormal_score=abnormal_score,
+                normal_score=normal_score,
+                abnormal_labels=abnormal_labels[:bs],
+                normal_labels=normal_labels[:bs],
+                a_feat_magnitude=a_feat_magnitude,
+            )
+            loss = loss_mgfn + loss_smooth + loss_sparsity
+
         return MGFNVideoAnomalyDetectionOutput(
+            loss=loss,
             abnormal_score=abnormal_score,
             normal_score=normal_score,
             a_feat_magnitude=a_feat_magnitude,
