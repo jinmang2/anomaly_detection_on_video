@@ -284,7 +284,7 @@ class MGFNForVideoAnomalyDedection(MGFNPreTrainedModel):
         self.layer_norm = nn.LayerNorm(last_dim)
         self.fc = nn.Linear(last_dim, 1)
         self.sigmoid = nn.Sigmoid()
-        self._force_split = True
+        self._force_split = False
         self.dropout = nn.Dropout(config.dropout_rate)
 
     @property
