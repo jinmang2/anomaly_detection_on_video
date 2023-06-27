@@ -12,7 +12,7 @@ import gtransforms
 args = option.parse_args()
 
 
-class Dataset(Dataset):
+class FeatureDataset(Dataset):
     def __init__(
         self,
         args,
