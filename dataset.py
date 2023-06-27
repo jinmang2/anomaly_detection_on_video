@@ -1,15 +1,18 @@
-import torch.utils.data as data
+import av
+import torch.utils.data from Dataset
 import numpy as np
 from utils import process_feat
 import torch
+from torchvision import transforms
 
 # torch.set_default_tensor_type('torch.cuda.FloatTensor')
 import option
+import gtransforms
 
 args = option.parse_args()
 
 
-class Dataset(data.Dataset):
+class Dataset(Dataset):
     def __init__(
         self,
         args,
@@ -106,3 +109,42 @@ class Dataset(data.Dataset):
 
     def get_num_frames(self):
         return self.num_frame
+
+
+class TenCropVideoFrameDataset(Dataset):
+    def __init__(
+        self,
+        video_path: str,
+        frames_per_clip: int = 16,
+        resize: int = 256,
+        cropsize: int = 224,
+    ):
+        self.frames_per_clip = frames_per_clip
+        self.container = av.open(video_path)
+        self.container.seek(0)
+
+        self.images = []
+        for frame in self.container.decode(video=0):
+            self.images.append(frame.to_image())
+
+        assert len(self.images) == self.container.streams.video[0].frames
+
+        self.indices = list(range(len(self.images) // frames_per_clip + 1))
+
+        self.transform = transform = transforms.Compose([
+            gtransforms.GroupResize(size=resize),
+            gtransforms.GroupTenCrop(size=cropsize),
+            gtransforms.ToTensorTenCrop(),
+            gtransforms.GroupNormalizeTenCrop(),
+            gtransforms.LoopPad(max_len=frames_per_clip),
+        ])
+
+    def __len__(self) -> int:
+        return len(self.indices)
+
+    def __getitem__(self, idx: int):
+        start_idx = idx * self.frames_per_clip
+        end_idx = (idx+1) * self.frames_per_clip
+        image = self.images[start_idx:end_idx]
+        tensor = self.transform(image)
+        return tensor.permute(1, 0, 2, 3, 4)

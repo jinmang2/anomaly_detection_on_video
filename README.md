@@ -21,6 +21,44 @@
 
 demo 구현 및 `test.py`가 class화 된 이후엔 전부 삭제 예정
 
+## Feature Extraction Demo code
+
+```python
+!pip install torch av pytorchvideo transformers
+
+import av
+import numpy as np
+from torch.utils.data import DataLoader
+from transformers.trainer import nested_concat
+
+from dataset import TenCropVideoFrameDataset
+from i3d import build_i3d_feature_extractor
+
+sample_video_path = "/content/Abuse001_x264.mp4"
+dataset = TenCropVideoFrameDataset(sample_video_path)
+dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
+
+model = build_i3d_feature_extractor()
+model.eval()
+model.cuda()
+
+outputs = None
+for step, inputs in enumerate(dataloader):
+    inputs = inputs.view(-1, 16, 3, 224, 224).permute(0, 2, 1, 3, 4).cuda()
+    output = model(inputs)
+    output = output.detach().cpu().numpy()
+    outputs = output if outputs is None else nested_concat(outputs, output)
+
+print(output.shape)
+```
+```
+# 171 * ten_crops, feature_dimension, 1, 1
+# `Abuse001_x264.mp4` video's n_frames == 2729
+# frames_per_clip == 16
+# 2729 // 16 + 1 == 171
+(1710, 2048, 1, 1)
+```
+
 # Reference
 - https://github.com/carolchenyx/MGFN./tree/main
     - feature extraction code: https://github.com/carolchenyx/MGFN./issues/6
