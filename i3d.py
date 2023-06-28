@@ -350,7 +350,7 @@ class I3Res50(nn.Module):
         return x
 
     def forward(self, batch):
-        return self.forward_single(batch["frames"])
+        return self.forward_single(batch)
 
 
 def print_model_size(model):
