@@ -1,8 +1,13 @@
 import os
 import wget
+import math
+
 from typing import Callable, Tuple
+
 import torch
 from torch import nn
+import torch.nn.functional as F
+
 from pytorchvideo.models.resnet import create_resnet
 
 
@@ -26,7 +31,6 @@ class ResNetHead(nn.Module):
 
 
 def create_res_pooler(direct_pool: bool = False):
-
     def _create_res_pool(
         *,
         pool: Callable = nn.AvgPool3d,
@@ -45,13 +49,341 @@ def create_res_pooler(direct_pool: bool = False):
                 padding=pool_padding,
             ),
             # output_with_global_average
-            output_pool=nn.AdaptiveAvgPool3d(1)
+            output_pool=nn.AdaptiveAvgPool3d(1),
         )
 
     return _create_res_pool
 
 
-def build_i3d_feature_extractor(model_path: str = "~/content/", check_model_size: bool = True):
+class FrozenBN(nn.Module):
+    def __init__(self, num_channels, momentum=0.1, eps=1e-5):
+        super(FrozenBN, self).__init__()
+        self.num_channels = num_channels
+        self.momentum = momentum
+        self.eps = eps
+        self.params_set = False
+
+    def set_params(self, scale, bias, running_mean, running_var):
+        self.register_buffer("scale", scale)
+        self.register_buffer("bias", bias)
+        self.register_buffer("running_mean", running_mean)
+        self.register_buffer("running_var", running_var)
+        self.params_set = True
+
+    def forward(self, x):
+        assert (
+            self.params_set
+        ), "model.set_params(...) must be called before the forward pass"
+        return torch.batch_norm(
+            x,
+            self.scale,
+            self.bias,
+            self.running_mean,
+            self.running_var,
+            False,
+            self.momentum,
+            self.eps,
+            torch.backends.cudnn.enabled,
+        )
+
+    def __repr__(self):
+        return "FrozenBN(%d)" % self.num_channels
+
+
+class Bottleneck(nn.Module):
+    expansion = 4
+
+    def __init__(
+        self, inplanes, planes, stride, downsample, temp_conv, temp_stride, use_nl=False
+    ):
+        super(Bottleneck, self).__init__()
+        self.conv1 = nn.Conv3d(
+            inplanes,
+            planes,
+            kernel_size=(1 + temp_conv * 2, 1, 1),
+            stride=(temp_stride, 1, 1),
+            padding=(temp_conv, 0, 0),
+            bias=False,
+        )
+        self.bn1 = nn.BatchNorm3d(planes)
+        self.conv2 = nn.Conv3d(
+            planes,
+            planes,
+            kernel_size=(1, 3, 3),
+            stride=(1, stride, stride),
+            padding=(0, 1, 1),
+            bias=False,
+        )
+        self.bn2 = nn.BatchNorm3d(planes)
+        self.conv3 = nn.Conv3d(
+            planes, planes * 4, kernel_size=1, stride=1, padding=0, bias=False
+        )
+        self.bn3 = nn.BatchNorm3d(planes * 4)
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        self.stride = stride
+
+        outplanes = planes * 4
+        self.nl = (
+            NonLocalBlock(outplanes, outplanes, outplanes // 2) if use_nl else None
+        )
+
+    def forward(self, x):
+        residual = x
+
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = self.relu(out)
+
+        out = self.conv3(out)
+        out = self.bn3(out)
+
+        if self.downsample is not None:
+            residual = self.downsample(x)
+
+        out += residual
+        out = self.relu(out)
+
+        if self.nl is not None:
+            out = self.nl(out)
+
+        return out
+
+
+class NonLocalBlock(nn.Module):
+    def __init__(self, dim_in, dim_out, dim_inner):
+        super(NonLocalBlock, self).__init__()
+
+        self.dim_in = dim_in
+        self.dim_inner = dim_inner
+        self.dim_out = dim_out
+
+        self.theta = nn.Conv3d(
+            dim_in,
+            dim_inner,
+            kernel_size=(1, 1, 1),
+            stride=(1, 1, 1),
+            padding=(0, 0, 0),
+        )
+        self.maxpool = nn.MaxPool3d(
+            kernel_size=(1, 2, 2), stride=(1, 2, 2), padding=(0, 0, 0)
+        )
+        self.phi = nn.Conv3d(
+            dim_in,
+            dim_inner,
+            kernel_size=(1, 1, 1),
+            stride=(1, 1, 1),
+            padding=(0, 0, 0),
+        )
+        self.g = nn.Conv3d(
+            dim_in,
+            dim_inner,
+            kernel_size=(1, 1, 1),
+            stride=(1, 1, 1),
+            padding=(0, 0, 0),
+        )
+
+        self.out = nn.Conv3d(
+            dim_inner,
+            dim_out,
+            kernel_size=(1, 1, 1),
+            stride=(1, 1, 1),
+            padding=(0, 0, 0),
+        )
+        self.bn = nn.BatchNorm3d(dim_out)
+
+    def forward(self, x):
+        residual = x
+
+        batch_size = x.shape[0]
+        mp = self.maxpool(x)
+        theta = self.theta(x)
+        phi = self.phi(mp)
+        g = self.g(mp)
+
+        theta_shape_5d = theta.shape
+        theta, phi, g = (
+            theta.view(batch_size, self.dim_inner, -1),
+            phi.view(batch_size, self.dim_inner, -1),
+            g.view(batch_size, self.dim_inner, -1),
+        )
+
+        theta_phi = torch.bmm(
+            theta.transpose(1, 2), phi
+        )  # (8, 1024, 784) * (8, 1024, 784) => (8, 784, 784)
+        theta_phi_sc = theta_phi * (self.dim_inner**-0.5)
+        p = F.softmax(theta_phi_sc, dim=-1)
+
+        t = torch.bmm(g, p.transpose(1, 2))
+        t = t.view(theta_shape_5d)
+
+        out = self.out(t)
+        out = self.bn(out)
+
+        out = out + residual
+        return out
+
+
+class I3Res50(nn.Module):
+    def __init__(
+        self, block=Bottleneck, layers=[3, 4, 6, 3], use_nl=False
+    ):
+        self.inplanes = 64
+        super(I3Res50, self).__init__()
+        self.conv1 = nn.Conv3d(
+            3,
+            64,
+            kernel_size=(5, 7, 7),
+            stride=(2, 2, 2),
+            padding=(2, 3, 3),
+            bias=False,
+        )
+        self.bn1 = nn.BatchNorm3d(64)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool1 = nn.MaxPool3d(
+            kernel_size=(2, 3, 3), stride=(2, 2, 2), padding=(0, 0, 0)
+        )
+        self.maxpool2 = nn.MaxPool3d(
+            kernel_size=(2, 1, 1), stride=(2, 1, 1), padding=(0, 0, 0)
+        )
+
+        nonlocal_mod = 2 if use_nl else 1000
+        self.layer1 = self._make_layer(
+            block, 64, layers[0], stride=1, temp_conv=[1, 1, 1], temp_stride=[1, 1, 1]
+        )
+        self.layer2 = self._make_layer(
+            block,
+            128,
+            layers[1],
+            stride=2,
+            temp_conv=[1, 0, 1, 0],
+            temp_stride=[1, 1, 1, 1],
+            nonlocal_mod=nonlocal_mod,
+        )
+        self.layer3 = self._make_layer(
+            block,
+            256,
+            layers[2],
+            stride=2,
+            temp_conv=[1, 0, 1, 0, 1, 0],
+            temp_stride=[1, 1, 1, 1, 1, 1],
+            nonlocal_mod=nonlocal_mod,
+        )
+        self.layer4 = self._make_layer(
+            block, 512, layers[3], stride=2, temp_conv=[0, 1, 0], temp_stride=[1, 1, 1]
+        )
+        self.avgpool = nn.AdaptiveAvgPool3d((1, 1, 1))
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv3d):
+                m.weight = nn.init.kaiming_normal_(m.weight, mode="fan_out")
+            elif isinstance(m, nn.BatchNorm3d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+    def _make_layer(
+        self, block, planes, blocks, stride, temp_conv, temp_stride, nonlocal_mod=1000
+    ):
+        downsample = None
+        if (
+            stride != 1
+            or self.inplanes != planes * block.expansion
+            or temp_stride[0] != 1
+        ):
+            downsample = nn.Sequential(
+                nn.Conv3d(
+                    self.inplanes,
+                    planes * block.expansion,
+                    kernel_size=(1, 1, 1),
+                    stride=(temp_stride[0], stride, stride),
+                    padding=(0, 0, 0),
+                    bias=False,
+                ),
+                nn.BatchNorm3d(planes * block.expansion),
+            )
+
+        layers = []
+        layers.append(
+            block(
+                self.inplanes,
+                planes,
+                stride,
+                downsample,
+                temp_conv[0],
+                temp_stride[0],
+                False,
+            )
+        )
+        self.inplanes = planes * block.expansion
+        for i in range(1, blocks):
+            layers.append(
+                block(
+                    self.inplanes,
+                    planes,
+                    1,
+                    None,
+                    temp_conv[i],
+                    temp_stride[i],
+                    i % nonlocal_mod == nonlocal_mod - 1,
+                )
+            )
+
+        return nn.Sequential(*layers)
+
+    def forward_single(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool1(x)
+
+        x = self.layer1(x)
+        x = self.maxpool2(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+
+        x = self.avgpool(x)
+        return x
+
+    def forward(self, batch):
+        return self.forward_single(batch["frames"])
+
+
+def print_model_size(model):
+    # https://discuss.pytorch.org/t/pytorch-model-size-in-mbs/149002
+    size_model = 0
+    for param in model.parameters():
+        if param.data.is_floating_point():
+            size_model += param.numel() * torch.finfo(param.data.dtype).bits
+        else:
+            size_model += param.numel() * torch.iinfo(param.data.dtype).gits
+    print(f"model size: {size_model} / bit | {size_model / 8e6:.2f} / MB")
+
+
+def _build_ref_i3d(
+    pretrained_path: str, check_model_size: bool = True,
+):
+    model = I3Res50(use_nl=False)
+    model.load_state_dict(torch.load(pretrained_path), strict=False)
+
+    if check_model_size:
+        print_model_size(model)
+
+    return model
+
+
+def build_i3d_feature_extractor(
+    model_path: str = "~/content/",
+    check_model_size: bool = True,
+    pytorchvideo: bool = True,
+):
+    if not pytorchvideo:
+        return _build_ref_i3d(model_path, check_model_size)
+
     model = create_resnet(
         stem_conv_kernel_size=(5, 7, 7),
         stage1_pool=nn.MaxPool3d,
@@ -69,17 +401,12 @@ def build_i3d_feature_extractor(model_path: str = "~/content/", check_model_size
     if not os.path.exists(os.path.join(model_path, "I3D_8x8_R50.pyth")):
         wget.download(model_zoo["i3d_8x8_r50"], out=model_path)
 
-    checkpoint = torch.load(os.path.join(model_path, "I3D_8x8_R50.pyth"), map_location="cpu")
+    checkpoint = torch.load(
+        os.path.join(model_path, "I3D_8x8_R50.pyth"), map_location="cpu"
+    )
     model.load_state_dict(checkpoint["model_state"], strict=False)
 
     if check_model_size:
-        # https://discuss.pytorch.org/t/pytorch-model-size-in-mbs/149002
-        size_model = 0
-        for param in model.parameters():
-            if param.data.is_floating_point():
-                size_model += param.numel() * torch.finfo(param.data.dtype).bits
-            else:
-                size_model += param.numel() * torch.iinfo(param.data.dtype).gits
-        print(f"model size: {size_model} / bit | {size_model / 8e6:.2f} / MB")
+        print_model_size(model)
 
     return model
