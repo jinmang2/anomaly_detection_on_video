@@ -2,7 +2,7 @@ import os
 import av
 import ffmpeg
 from PIL import Image
-import torch.utils.data from Dataset
+from torch.utils.data import Dataset
 import numpy as np
 from utils import process_feat
 import torch
@@ -134,7 +134,12 @@ class TenCropVideoFrameDataset(Dataset):
 
             for frame in self.container.decode(video=0):
                 self.images.append(frame.to_image())
+
+            assert len(self.images) == self.container.streams.video[0].frames
         else:
+            if not output_folder_name.endswith(os.sep):
+                output_folder_name += os.sep
+
             output_path = os.path.join(os.getcwd(), output_folder_name)
             if not os.path.exists(output_path):
                 os.makedirs(output_path)
@@ -152,25 +157,27 @@ class TenCropVideoFrameDataset(Dataset):
             for file in rgb_files:
                 self.images.append(Image.open(os.path.join(output_path, file)))
 
-        assert len(self.images) == self.container.streams.video[0].frames
+            assert len(self.images) == len(rgb_files)
 
         self.frames_per_clip = frames_per_clip
         self.indices = list(range(len(self.images) // frames_per_clip + 1))
 
-        self.transform = transform = transforms.Compose([
-            gtransforms.GroupResize(size=resize),
-            gtransforms.GroupTenCrop(size=cropsize),
-            gtransforms.ToTensorTenCrop(),
-            gtransforms.GroupNormalizeTenCrop(),
-            gtransforms.LoopPad(max_len=frames_per_clip),
-        ])
+        self.transform = transforms.Compose(
+            [
+                gtransforms.GroupResize(size=resize),
+                gtransforms.GroupTenCrop(size=cropsize),
+                gtransforms.ToTensorTenCrop(),
+                gtransforms.GroupNormalizeTenCrop(),
+                gtransforms.LoopPad(max_len=frames_per_clip),
+            ]
+        )
 
     def __len__(self) -> int:
         return len(self.indices)
 
     def __getitem__(self, idx: int):
         start_idx = idx * self.frames_per_clip
-        end_idx = (idx+1) * self.frames_per_clip
+        end_idx = (idx + 1) * self.frames_per_clip
         image = self.images[start_idx:end_idx]
         tensor = self.transform(image)
         return tensor.permute(1, 0, 2, 3, 4)
