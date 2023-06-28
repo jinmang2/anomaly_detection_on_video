@@ -123,6 +123,7 @@ class TenCropVideoFrameDataset(Dataset):
         resize: int = 256,
         cropsize: int = 224,
         to_frame: str = "pyav",
+        resample: int = Image.BILINEAR,
     ):
         to_frame = to_frame.lower()
         assert to_frame in ("pyav", "ffmpeg")
@@ -164,7 +165,7 @@ class TenCropVideoFrameDataset(Dataset):
 
         self.transform = transforms.Compose(
             [
-                gtransforms.GroupResize(size=resize),
+                gtransforms.GroupResize(size=resize, resample=resample),
                 gtransforms.GroupTenCrop(size=cropsize),
                 gtransforms.ToTensorTenCrop(),
                 gtransforms.GroupNormalizeTenCrop(),
