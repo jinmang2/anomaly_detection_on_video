@@ -272,7 +272,7 @@ class MGFNModel(MGFNPreTrainedModel):
         return MGFNModelOutput(outputs=out)
 
 
-class MGFNForVideoAnomalyDedection(MGFNPreTrainedModel):
+class MGFNForVideoAnomalyDetection(MGFNPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
 
