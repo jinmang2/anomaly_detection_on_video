@@ -13,27 +13,28 @@ class GroupResize:
     ):
         self.worker = transforms.Resize(size, interpolation=resample)
 
-    def __call__(self, img_group: List["PIL.Image"]) -> List["PIL.Image"]:
+    def __call__(self, img_group: List[Image.Image]) -> List[Image.Image]:
         return [self.worker(img) for img in img_group]
 
 
 class GroupTenCrop:
     def __init__(self, size: int = 224):
-        tencrop = transforms.TenCrop(size)
-        pil_to_tensor = transforms.Lambda(
-            lambda crops: torch.stack(
-                [transforms.PILToTensor()(crop) for crop in crops]
-            )
-        )
-        self.worker = transforms.Compose([tencrop, pil_to_tensor])
+        self.worker = transforms.TenCrop(size)
 
-    def __call__(self, img_group: List["PIL.Image"]) -> List[torch.Tensor]:
+    def __call__(self, img_group: List[Image.Image]) -> List[List[Image.Image]]:
         return [self.worker(img) for img in img_group]
 
 
 class ToTensorTenCrop:
-    def __call__(self, img_group: List[torch.Tensor]) -> torch.Tensor:
-        return torch.stack(img_group, dim=0).float()
+    def __init__(self):
+        pil_to_tensor = transforms.PILToTensor()
+        self.worker = transforms.Lambda(
+            lambda crops: torch.stack([pil_to_tensor(crop) for crop in crops])
+        )
+
+    def __call__(self, img_group: List[List[Image.Image]]) -> torch.Tensor:
+        tensor_group = [self.worker(img) for img in img_group]
+        return torch.stack(tensor_group, dim=0).float()
 
 
 class GroupNormalizeTenCrop:
