@@ -10,8 +10,8 @@ from dataclasses import dataclass
 from transformers import PreTrainedModel
 from transformers.file_utils import ModelOutput
 
-from configuration_mgfn import MGFNConfig
-from loss_mgfn import (
+from .configuration_mgfn import MGFNConfig
+from .loss_mgfn import (
     TemporalSmoothnessLoss,
     SparsityLoss,
     MGFNLoss,
