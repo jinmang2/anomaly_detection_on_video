@@ -1,5 +1,4 @@
 import os
-import wget
 import math
 
 from typing import Callable, Tuple
@@ -10,9 +9,15 @@ import torch.nn.functional as F
 
 from pytorchvideo.models.resnet import create_resnet
 
+from huggingface_hub import hf_hub_download
 
+
+repo_id = "jinmang2/test_video_fe"
 model_zoo = {
-    "i3d_8x8_r50": "https://dl.fbaipublicfiles.com/pytorchvideo/model_zoo/kinetics/I3D\_8x8\_R50.pyth",
+    # https://github.com/facebookresearch/pytorchvideo/blob/0.1.3/pytorchvideo/models/hub/resnet.py#L19
+    "i3d_8x8_r50": "I3D_8x8_R50.pyth",
+    # https://github.com/Tushar-N/pytorch-resnet3d#kinetics-evaluation
+    "tushar-n-baseline": "converted_ref_i3d.pt",
 }
 
 
@@ -53,41 +58,6 @@ def create_res_pooler(direct_pool: bool = False):
         )
 
     return _create_res_pool
-
-
-class FrozenBN(nn.Module):
-    def __init__(self, num_channels, momentum=0.1, eps=1e-5):
-        super(FrozenBN, self).__init__()
-        self.num_channels = num_channels
-        self.momentum = momentum
-        self.eps = eps
-        self.params_set = False
-
-    def set_params(self, scale, bias, running_mean, running_var):
-        self.register_buffer("scale", scale)
-        self.register_buffer("bias", bias)
-        self.register_buffer("running_mean", running_mean)
-        self.register_buffer("running_var", running_var)
-        self.params_set = True
-
-    def forward(self, x):
-        assert (
-            self.params_set
-        ), "model.set_params(...) must be called before the forward pass"
-        return torch.batch_norm(
-            x,
-            self.scale,
-            self.bias,
-            self.running_mean,
-            self.running_var,
-            False,
-            self.momentum,
-            self.eps,
-            torch.backends.cudnn.enabled,
-        )
-
-    def __repr__(self):
-        return "FrozenBN(%d)" % self.num_channels
 
 
 class Bottleneck(nn.Module):
@@ -229,9 +199,7 @@ class NonLocalBlock(nn.Module):
 
 
 class I3Res50(nn.Module):
-    def __init__(
-        self, block=Bottleneck, layers=[3, 4, 6, 3], use_nl=False
-    ):
+    def __init__(self, block=Bottleneck, layers=[3, 4, 6, 3], use_nl=False):
         self.inplanes = 64
         super(I3Res50, self).__init__()
         self.conv1 = nn.Conv3d(
@@ -364,47 +332,30 @@ def print_model_size(model):
     print(f"model size: {size_model} / bit | {size_model / 8e6:.2f} / MB")
 
 
-def _build_ref_i3d(
-    pretrained_path: str, check_model_size: bool = True,
-):
-    model = I3Res50(use_nl=False)
-    model.load_state_dict(torch.load(pretrained_path), strict=False)
-
-    if check_model_size:
-        print_model_size(model)
-
-    return model
-
-
 def build_i3d_feature_extractor(
-    model_path: str = "~/content/",
+    model_name: str = "tushar-n",
     check_model_size: bool = True,
-    pytorchvideo: bool = True,
+    strict: bool = False,
 ):
-    if not pytorchvideo:
-        return _build_ref_i3d(model_path, check_model_size)
+    if model_name == "tushar-n":
+        model = I3Res50(use_nl=False)
+    elif model_name == "i3d_8x8_r50":
+        model = create_resnet(
+            stem_conv_kernel_size=(5, 7, 7),
+            stage1_pool=nn.MaxPool3d,
+            stage_conv_a_kernel_size=(
+                (3, 1, 1),
+                [(3, 1, 1), (1, 1, 1)],
+                [(3, 1, 1), (1, 1, 1)],
+                [(1, 1, 1), (3, 1, 1)],
+            ),
+            head=create_res_pooler(direct_pool=False),
+        )
+    else:
+        raise AttributeError
 
-    model = create_resnet(
-        stem_conv_kernel_size=(5, 7, 7),
-        stage1_pool=nn.MaxPool3d,
-        stage_conv_a_kernel_size=(
-            (3, 1, 1),
-            [(3, 1, 1), (1, 1, 1)],
-            [(3, 1, 1), (1, 1, 1)],
-            [(1, 1, 1), (3, 1, 1)],
-        ),
-        head=create_res_pooler(direct_pool=False),
-    )
-
-    if not os.path.exists(model_path):
-        os.makedirs(model_path)
-    if not os.path.exists(os.path.join(model_path, "I3D_8x8_R50.pyth")):
-        wget.download(model_zoo["i3d_8x8_r50"], out=model_path)
-
-    checkpoint = torch.load(
-        os.path.join(model_path, "I3D_8x8_R50.pyth"), map_location="cpu"
-    )
-    model.load_state_dict(checkpoint["model_state"], strict=False)
+    state_dict_path = hf_hub_download(repo_id=repo_id, filename=model_zoo["model_name"])
+    model.load_state_dict(torch.load(state_dict_path), strict=strict)
 
     if check_model_size:
         print_model_size(model)
