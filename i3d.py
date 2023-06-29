@@ -333,11 +333,11 @@ def print_model_size(model):
 
 
 def build_i3d_feature_extractor(
-    model_name: str = "tushar-n",
+    model_name: str = "tushar-n-baseline",
     check_model_size: bool = True,
     strict: bool = False,
 ):
-    if model_name == "tushar-n":
+    if model_name == "tushar-n-baseline":
         model = I3Res50(use_nl=False)
     elif model_name == "i3d_8x8_r50":
         model = create_resnet(
@@ -354,8 +354,12 @@ def build_i3d_feature_extractor(
     else:
         raise AttributeError
 
-    state_dict_path = hf_hub_download(repo_id=repo_id, filename=model_zoo["model_name"])
-    model.load_state_dict(torch.load(state_dict_path), strict=strict)
+    state_dict_path = hf_hub_download(repo_id=repo_id, filename=model_zoo[model_name])
+
+    model.load_state_dict(
+        state_dict=torch.load(state_dict_path, map_location="cpu"),
+        strict=strict,
+    )
 
     if check_model_size:
         print_model_size(model)
