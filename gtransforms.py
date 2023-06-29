@@ -1,3 +1,4 @@
+from abc import abstractmethod
 from PIL import Image
 from typing import Union, List, Tuple
 
@@ -37,16 +38,10 @@ class ToTensorTenCrop:
         return torch.stack(tensor_group, dim=0).float()
 
 
-class GroupNormalizeTenCrop:
-    def __init__(
-        self,
-        mean: List[float] = [114.75, 114.75, 114.75],
-        std: List[float] = [57.375, 57.375, 57.375],
-    ):
-        # default mean, str:
-        # Single channel mean/stev on kinetics (unlike pytorch Imagenet)
-        self.mean = mean
-        self.std = std
+class _GroupNormalizeTenCropBase:
+    @abstractmethod
+    def normalize(self, tensor: torch.Tensor) -> torch.Tensor:
+        pass
 
     def __call__(self, tensor: torch.Tensor) -> torch.Tensor:
         # tensor.shape == (frames_per_clip, ncrops, n_channel, heights, widths)
@@ -54,9 +49,67 @@ class GroupNormalizeTenCrop:
         for b in range(tensor.size(0)):
             # ncrops
             for c in range(tensor.size(1)):
-                for t, m, s in zip(tensor[b][c], self.mean, self.std):
-                    t.sub_(m).div_(s)
+                normalized = self.normalize(tensor[b, c])
+                tensor[b, c] = normalized
         return tensor
+
+
+class GroupStandardizationTenCrop(_GroupNormalizeTenCropBase):
+    def __init__(
+        self,
+        mean: Union[float, List[float]] = 114.75,
+        std: Union[float, List[float]] = 57.375,
+    ):
+        if isinstance(mean, float):
+            mean = [mean] * 3
+        if isinstance(std, float):
+            std = [std] * 3
+        self.mean = torch.FloatTensor(mean)
+        self.std = torch.FloatTensor(std)
+
+    def normalize(self, tensor: torch.Tensor) -> torch.Tensor:
+        for t, m, s in zip(tensor, self.mean, self.std):
+            t.sub_(m).div_(s)
+        return tensor
+
+
+class GroupPixelMinmaxTenCrop(_GroupNormalizeTenCropBase):
+    def __init__(self, min: float = 0.0, max: float = 1.0):
+        assert min < max
+        self.min = min
+        self.max = max
+
+    def normalize(self, tensor: torch.Tensor) -> torch.Tensor:
+        min, max = tensor.min(), tensor.max()
+        new_min, new_max = self.min, self.max
+        tensor = (tensor - min) / (max - min)
+        return tensor * (new_max - new_min) + new_min
+
+
+class GroupRGBChannelMinmaxTenCrop(_GroupNormalizeTenCropBase):
+    def __init__(
+        self,
+        min: Union[float, List[float]] = 0.0,
+        max: Union[float, List[float]] = 1.0,
+    ):
+        if isinstance(min, float):
+            min = [min] * 3
+        if isinstance(max, float):
+            max = [max] * 3
+
+        assert any(map(lambda x, y: x < y, min, max))
+
+        self.min = torch.FloatTensor(min).unsqueeze(dim=-1).unsqueeze(dim=-1)
+        self.max = torch.FloatTensor(max).unsqueeze(dim=-1).unsqueeze(dim=-1)
+
+    def normalize(self, tensor: torch.Tensor) -> torch.Tensor:
+        min = tensor.min(dim=-1)[0].min(dim=-1)[0]
+        min = min.unsqueeze(dim=-1).unsqueeze(dim=-1)
+        max = tensor.max(dim=-1)[0].max(dim=-1)[0]
+        max = max.unsqueeze(dim=-1).unsqueeze(dim=-1)
+        new_min, new_max = self.min, self.max
+        tensor = (tensor - min) / (max - min)
+        return tensor * (new_max - new_min) + new_min
 
 
 class LoopPad:

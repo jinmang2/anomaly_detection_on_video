@@ -168,7 +168,7 @@ class TenCropVideoFrameDataset(Dataset):
                 gtransforms.GroupResize(size=resize, resample=resample),
                 gtransforms.GroupTenCrop(size=cropsize),
                 gtransforms.ToTensorTenCrop(),
-                gtransforms.GroupNormalizeTenCrop(),
+                gtransforms.GroupStandardizationTenCrop(),
                 gtransforms.LoopPad(max_len=frames_per_clip),
             ]
         )
