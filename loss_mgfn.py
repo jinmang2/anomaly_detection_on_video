@@ -9,7 +9,7 @@ class TemporalSmoothnessLoss(nn.Module):
         super().__init__()
         self.lambda1 = lambda1
 
-    def forward(self, x, lambda1: Optional[float] = None):
+    def forward(self, x: torch.Tensor, lambda1: Optional[float] = None) -> torch.Tensor:
         if lambda1 is None:
             lambda1 = self.lambda1
 
@@ -23,7 +23,7 @@ class SparsityLoss(nn.Module):
         super().__init__()
         self.lambda2 = lambda2
 
-    def forward(self, x, lambda2: Optional[float] = None):
+    def forward(self, x: torch.Tensor, lambda2: Optional[float] = None) -> torch.Tensor:
         if lambda2 is None:
             lambda2 = self.lambda2
 
@@ -32,11 +32,13 @@ class SparsityLoss(nn.Module):
 
 
 class ContrastiveLoss(nn.Module):
-    def __init__(self, margin=200.0):
+    def __init__(self, margin: float = 200.0):
         super().__init__()
         self.margin = margin
 
-    def forward(self, output1, output2, label):
+    def forward(
+        self, output1: torch.Tensor, output2: torch.Tensor, label: torch.Tensor
+    ) -> torch.Tensor:
         euclidean_distance = torch.pairwise_distance(output1, output2, keepdim=True)
         loss_contrastive = torch.mean(
             (1 - label) * torch.pow(euclidean_distance, 2)
@@ -55,13 +57,13 @@ class MGFNLoss(nn.Module):
 
     def forward(
         self,
-        abnormal_scores,
-        normal_scores,
-        a_feat_magnitude,
-        n_feat_magnitude,
-        abnormal_labels,
-        normal_labels,
-    ):
+        abnormal_scores: torch.Tensor,
+        normal_scores: torch.Tensor,
+        a_feat_magnitude: torch.Tensor,
+        n_feat_magnitude: torch.Tensor,
+        abnormal_labels: torch.Tensor,
+        normal_labels: torch.Tensor,
+    ) -> torch.Tensor:
         labels = torch.cat((normal_labels, abnormal_labels), 0)
         scores = torch.cat((normal_scores, abnormal_scores), 0).squeeze()
         seperate = len(n_feat_magnitude) / 2
