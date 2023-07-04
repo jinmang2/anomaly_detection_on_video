@@ -78,17 +78,18 @@ def extract(
             for crop_idx in range(inputs.shape[1]):
                 crop = inputs[:, crop_idx]
                 crop = crop.to(device)
+                # (B, 3, 16, 224, 224) -> (B, 2048, 1, 1, 1)
                 crop = model(crop)
                 crops.append(crop.detach().cpu().numpy())
             outputs.append(crops)
 
-        # concat
+        # stack
         _outputs = []
         for output in outputs:
-            outs = []
-            for out in output:
-                outs.append(out)
-            _outputs.append(np.stack(outs, axis=1))
+            # [(B, 2048, 1, 1, 1)] * 10 -> (B, 10, 2048, 1, 1, 1)
+            _outputs.append(np.stack(output, axis=1))
+        # [(B, 10, 2048, 1, 1, 1)] * T -> (n_clips, 10, 2048, 1, 1, 1)
+        # T = n_clips / B
         _outputs = np.vstack(_outputs)
         outputs = np.squeeze(_outputs)  # (n_clips, 10, 2048)
 
