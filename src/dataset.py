@@ -1,8 +1,8 @@
 import os
-import av
-import ffmpeg
 from PIL import Image
 from typing import Union, Tuple
+
+import decord
 
 import numpy as np
 
@@ -47,7 +47,7 @@ class FeatureDataset(Dataset):
 
     def __getitem__(self, index: int) -> Tuple[torch.Tensor, torch.Tensor]:
         label = self.get_label(index)  # get video level label 0/1
-        
+
         # Only UCF
         features = np.load(self.list[index].strip("\n"), allow_pickle=True)
         features = np.array(features, dtype=np.float32)
@@ -75,9 +75,7 @@ class FeatureDataset(Dataset):
                 divided_mag.append(np.linalg.norm(feature, axis=1)[:, np.newaxis])
             divided_features = np.array(divided_features, dtype=np.float32)
             divided_mag = np.array(divided_mag, dtype=np.float32)
-            divided_features = np.concatenate(
-                (divided_features, divided_mag), axis=2
-            )
+            divided_features = np.concatenate((divided_features, divided_mag), axis=2)
             return divided_features, label
 
     def get_label(self, index: int) -> torch.Tensor:
@@ -95,50 +93,20 @@ class TenCropVideoFrameDataset(Dataset):
     def __init__(
         self,
         video_path: str,
-        output_folder_name: str = "outputs",  # for ffmpeg-python
         frames_per_clip: int = 16,
         resize: int = 256,
         cropsize: int = 224,
-        to_frame: str = "pyav",
         resample: int = Image.BILINEAR,
     ):
-        to_frame = to_frame.lower()
-        assert to_frame in ("pyav", "ffmpeg")
-
+        vr = decord.VideoReader(uri=video_path)
         self.images = []
-        if to_frame == "pyav":
-            self.container = av.open(video_path)
-            self.container.seek(0)
-
-            for frame in self.container.decode(video=0):
-                self.images.append(frame.to_image())
-
-            assert len(self.images) == self.container.streams.video[0].frames
-        else:
-            if not output_folder_name.endswith(os.sep):
-                output_folder_name += os.sep
-
-            output_path = os.path.join(os.getcwd(), output_folder_name)
-            if not os.path.exists(output_path):
-                os.makedirs(output_path)
-
-            # @TODO: Image path가 들어왔을 경우 처리
-            ffmpeg.input(video_path).output(
-                "{}%d.jpg".format(output_path),
-                start_number=0,
-            ).global_args("-loglevel", "quiet").run()
-
-            from natsort import natsorted
-
-            rgb_files = natsorted(list(os.listdir(output_path)))
-
-            for file in rgb_files:
-                self.images.append(Image.open(os.path.join(output_path, file)))
-
-            assert len(self.images) == len(rgb_files)
+        for i in range(len(vr)):
+            arr = vr[i].asnumpy()
+            self.images.append(Image.fromarray(arr))
 
         self.frames_per_clip = frames_per_clip
-        self.indices = list(range(len(self.images) // frames_per_clip + 1))
+        n_frames = len(self.images)
+        self.indices = list(range((n_frames - 1) // frames_per_clip + 1))
 
         self.transform = transforms.Compose(
             [
