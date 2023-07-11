@@ -1,6 +1,6 @@
 import os
 from PIL import Image
-from typing import Union, Tuple
+from typing import Union, Tuple, List
 
 import decord
 
@@ -92,17 +92,28 @@ class FeatureDataset(Dataset):
 class TenCropVideoFrameDataset(Dataset):
     def __init__(
         self,
-        video_path: str,
+        video_path_or_images: Union[str, List[Image.Image]],
         frames_per_clip: int = 16,
         resize: int = 256,
         cropsize: int = 224,
         resample: int = Image.BILINEAR,
     ):
-        vr = decord.VideoReader(uri=video_path)
-        self.images = []
-        for i in range(len(vr)):
-            arr = vr[i].asnumpy()
-            self.images.append(Image.fromarray(arr))
+        if isinstance(video_path_or_images, str):
+            vr = decord.VideoReader(uri=video_path_or_images)
+            self.images = []
+            for i in range(len(vr)):
+                arr = vr[i].asnumpy()
+                self.images.append(Image.fromarray(arr))
+        elif isinstance(video_path_or_images, list) and isinstance(
+            video_path_or_images[0], Image.Image
+        ):
+            self.images = video_path_or_images
+        else:
+            raise ValueError(
+                "The type of `video_path_or_images` must be either `str` "
+                "or `List[PIL.Image.Image]`. "
+                f"The type of your input is {type(video_path_or_images)}."
+            )
 
         self.frames_per_clip = frames_per_clip
         n_frames = len(self.images)
