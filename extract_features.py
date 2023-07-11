@@ -102,6 +102,8 @@ def extract(
 
         # If the size of the video is larger than 1GB, divide it by the segment length. 
         # After that, upload it to RAM and receive the tencrop result from the model.
+        # Note That: The script below provides the result of converting bytes to killobytes.
+        # https://huggingface.co/datasets/jinmang2/ucf_crime/blob/main/ucf_crime.py
         if sample["size"] > 1024**2:
             # The fps of the video in `ucf_crime` dataset is 30. Therefore, 3,000 video frames
             # are about 100 seconds long, which is a good video length for inference in colab pro+.
