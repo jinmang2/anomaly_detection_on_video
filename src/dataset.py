@@ -11,7 +11,6 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 
 from . import gtransforms
-from .utils import process_feat
 
 
 class FeatureDataset(Dataset):
@@ -45,6 +44,17 @@ class FeatureDataset(Dataset):
             else:
                 self.list = self.list[:810]  # ucf 810; sht 63; 9525
 
+    @staticmethod
+    def process_feat(feat, length):
+        new_feat = np.zeros((length, feat.shape[1])).astype(np.float32)  # UCF(32,2048)
+        r = np.linspace(0, len(feat), length + 1, dtype=int)  # (33,)
+        for i in range(length):
+            if r[i] != r[i + 1]:
+                new_feat[i, :] = np.mean(feat[r[i] : r[i + 1], :], 0)
+            else:
+                new_feat[i, :] = feat[r[i], :]
+        return new_feat
+
     def __getitem__(self, index: int) -> Tuple[torch.Tensor, torch.Tensor]:
         label = self.get_label(index)  # get video level label 0/1
 
@@ -70,7 +80,7 @@ class FeatureDataset(Dataset):
 
             divided_mag = []
             for feature in features:
-                feature = process_feat(feature, self.seg_length)  # ucf(32,2048)
+                feature = self.process_feat(feature, self.seg_length)  # ucf(32,2048)
                 divided_features.append(feature)
                 divided_mag.append(np.linalg.norm(feature, axis=1)[:, np.newaxis])
             divided_features = np.array(divided_features, dtype=np.float32)
