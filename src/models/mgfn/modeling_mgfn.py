@@ -306,12 +306,15 @@ class MGFNForVideoAnomalyDetection(MGFNPreTrainedModel):
         batch_size,
         ncrops,
     ):
+        # features.shape == (bsz * ncrops, T, f)
         device = features.device
         _, t, f = features.size()
 
+        # feat_magnitudes.shape : (bsz * ncrops, T, f) -> (bsz, T)
         feat_magnitudes = torch.norm(features, p=2, dim=2)
         feat_magnitudes = feat_magnitudes.view(batch_size, ncrops, -1).mean(dim=1)
 
+        # scores.shape : (bsz * ncrops, T, 1) -> (bsz, T, 1)
         scores = scores.view(batch_size, ncrops, -1).mean(dim=1)
         scores = scores.unsqueeze(dim=2)
 
@@ -376,17 +379,28 @@ class MGFNForVideoAnomalyDetection(MGFNPreTrainedModel):
         abnormal_labels: Optional[torch.FloatTensor] = None,
         normal_labels: Optional[torch.FloatTensor] = None,
     ) -> MGFNVideoAnomalyDetectionOutput:
+        # video.shape == (
+        #     batch_size,       -> Half were `normal` samples, and half were `abnormal` samples.
+        #     number of crops,  -> 10, since using `TenCrop` in feature extraction
+        #     segment_length,   -> T, the number used in original repository (Is equal to n_clips)
+        #                          In training phase, 32.
+        #     feature_dimension -> 2049, feature dimension(2048) + magnitude(1)
+        # )
         bs, ncrops = video.size()[:2]
-        x_f = self.backbone(video).outputs.permute(0, 2, 1)
+        # x_f.shape == (bsz * ncrops, last_hidden_dim, nclips)
+        x_f = self.backbone(video).outputs
+        x_f = x_f.permute(0, 2, 1)
+        # x.shape == (bsz * ncrops, nclips, last_hidden_dim)
         x = self.layer_norm(x_f)
+        # scores.shape == (bsz * ncrops, nclips, 1)
         scores = self.sigmoid(self.fc(x))
 
         (
-            abnormal_scores,
-            normal_scores,
-            a_feat_magnitude,
-            n_feat_magnitude,
-            scores,
+            abnormal_scores,  # (bsz // 2, 1)
+            normal_scores,    # (bsz // 2, 1)
+            a_feat_magnitude, # (bsz // 2 * ncrops, topk, last_hidden_dim)
+            n_feat_magnitude, # (bsz // 2 * ncrops, topk, last_hidden_dim)
+            scores,           # (bsz, nclips, 1)
         ) = self.magnitude_selection_and_score_prediction(x, scores, bs, ncrops)
 
         loss = None
