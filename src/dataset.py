@@ -1,6 +1,7 @@
 import os
+import zipfile
 from PIL import Image
-from typing import Union, Tuple, List
+from typing import Union, List, Optional, Callable
 
 import decord
 
@@ -10,93 +11,95 @@ import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
 
+from huggingface_hub import hf_hub_url
+from datasets import DownloadManager, DownloadConfig
+
 from . import gtransforms
+
+
+DEFAULT_FEATURE_HUB = "jinmang2/ucf_crime_tencrop_i3d_seg32"
+DEFAULT_FILENAMES = {"train": "train.zip", "test": "test.zip"}
+
+
+def _build_feature_dataset(filepath: str, mode: str, cache_dir: str):
+    assert mode in ("train", "test")
+
+    dl_config = DownloadConfig(cache_dir=cache_dir)
+    dl_manager = DownloadManager(download_config=dl_config)
+    archive = dl_manager.download(filepath)
+    zipf = zipfile.ZipFile(archive)
+
+    zipinfos = []
+    labels = []
+    for member in zipf.infolist():
+        zipinfos.append(member)
+        label = 0 if "Normal" in member.filename else 1
+        labels.append(label)
+
+    if mode == "test":
+        return FeatureDataset(
+            zipinfos=zipinfos,
+            labels=labels,
+            open_func=zipf.open,
+        )
+
+    return {
+        "normal": FeatureDataset(
+            zipinfos=[info for i, info in enumerate(zipinfos) if labels[i] == 0],
+            labels=[i for i in labels if i == 0],
+            open_func=zipf.open,
+        ),
+        "abnormal": FeatureDataset(
+            zipinfos=[info for i, info in enumerate(zipinfos) if labels[i] == 1],
+            labels=[i for i in labels if i == 1],
+            open_func=zipf.open,
+        ),
+    }
+
+
+def get_hf_hub_url(filename: str) -> str:
+    return hf_hub_url(DEFAULT_FEATURE_HUB, filename, repo_type="dataset")
+
+
+def build_feature_dataset(
+    local_path: Optional[str] = None,
+    filename: Optional[str] = None,
+    mode: str = "train",
+    cache_dir: str = "cache",
+):
+    assert mode in ("train", "test")
+    if local_path is None:
+        if filename is None:
+            raise ValueError
+        filepath = get_hf_hub_url(DEFAULT_FILENAMES[mode])
+    else:
+        filepath = os.path.join(local_path, filename)
+
+    return _build_feature_dataset(filepath, mode, cache_dir)
 
 
 class FeatureDataset(Dataset):
     def __init__(
         self,
-        rgb_list,
-        modality: str = "RGB",
-        is_normal: bool = True,
-        transform: Union[torch.nn.Module, "transforms.Compose"] = None,
-        test_mode: bool = False,
-        is_preprocessed: bool = False,
-        seg_length: int = 32,
+        zipinfos: List[zipfile.ZipInfo],
+        labels: List[int],
+        open_func: Callable,
     ):
-        self.modality = modality
-        self.is_normal = is_normal
-        self.rgb_list_file = rgb_list
-        self.transform = transform
-        self.test_mode = test_mode
-        self._parse_list()
-        self.num_frame = 0
-        self.labels = None
-        self.is_preprocessed = is_preprocessed
-        self.seg_length = seg_length
+        assert len(zipinfos) != len(labels)
 
-    def _parse_list(self):
-        self.list = list(open(self.rgb_list_file))
-        if self.test_mode is False:
-            # only UCF
-            if self.is_normal:
-                self.list = self.list[810:]  # ucf 810; sht63; xd 9525
-            else:
-                self.list = self.list[:810]  # ucf 810; sht 63; 9525
+        self.zipinfos = zipinfos
+        self.labels = labels
 
-    @staticmethod
-    def process_feat(feat, length):
-        new_feat = np.zeros((length, feat.shape[1])).astype(np.float32)  # UCF(32,2048)
-        r = np.linspace(0, len(feat), length + 1, dtype=int)  # (33,)
-        for i in range(length):
-            if r[i] != r[i + 1]:
-                new_feat[i, :] = np.mean(feat[r[i] : r[i + 1], :], 0)
-            else:
-                new_feat[i, :] = feat[r[i], :]
-        return new_feat
-
-    def __getitem__(self, index: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        label = self.get_label(index)  # get video level label 0/1
-
-        # Only UCF
-        features = np.load(self.list[index].strip("\n"), allow_pickle=True)
-        features = np.array(features, dtype=np.float32)
-        name = self.list[index].split("/")[-1].strip("\n")[:-4]
-
-        if self.transform is not None:
-            features = self.tranform(features)
-
-        if self.test_mode:
-            # only UCF
-            mag = np.linalg.norm(features, axis=2)[:, :, np.newaxis]
-            features = np.concatenate((features, mag), axis=2)
-            return features, name
-        else:
-            # only UCF
-            if self.is_preprocessed:
-                return features, label
-            features = features.transpose(1, 0, 2)  # [10, T, F]
-            divided_features = []
-
-            divided_mag = []
-            for feature in features:
-                feature = self.process_feat(feature, self.seg_length)  # ucf(32,2048)
-                divided_features.append(feature)
-                divided_mag.append(np.linalg.norm(feature, axis=1)[:, np.newaxis])
-            divided_features = np.array(divided_features, dtype=np.float32)
-            divided_mag = np.array(divided_mag, dtype=np.float32)
-            divided_features = np.concatenate((divided_features, divided_mag), axis=2)
-            return divided_features, label
-
-    def get_label(self, index: int) -> torch.Tensor:
-        label = 0.0 if self.is_normal else 1.0
-        return torch.tensor(label)
+        self.open = open_func
 
     def __len__(self) -> int:
-        return len(self.list)
+        return len(self.zipinfos)
 
-    def get_num_frames(self) -> int:
-        return self.num_frame
+    def __getitem__(self, idx: int) -> torch.Tensor:
+        zipinfo = self.zipinfos[idx]
+        feature = np.load(self.open(zipinfo))
+        label = self.labels[idx]
+        return feature, label
 
 
 class TenCropVideoFrameDataset(Dataset):
