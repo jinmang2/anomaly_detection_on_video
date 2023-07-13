@@ -22,14 +22,12 @@ DEFAULT_FILENAMES = {"train": "train.zip", "test": "test.zip"}
 
 
 def _build_feature_dataset(
-    filepath: str,
-    mode: str,
-    cache_dir: str
+    filepath: str, mode: str, cache_dir: str
 ) -> Union[Dataset, Dict[str, Dataset]]:
     assert mode in ("train", "test")
 
     dl_config = DownloadConfig(cache_dir=cache_dir)
-    dl_manager = DownloadManager(download_config=dl_config)
+    dl_manager = DownloadManager(record_checksums=False, download_config=dl_config)
     archive = dl_manager.download(filepath)
     zipf = zipfile.ZipFile(archive)
 
@@ -114,7 +112,7 @@ class FeatureDataset(Dataset):
         feature = np.load(self.open(zipinfo))
         label = self.labels[idx]
         return feature, label
-    
+
     def get_filename(self, idx: int) -> str:
         return self.filenames[idx]
 
