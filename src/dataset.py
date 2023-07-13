@@ -37,7 +37,7 @@ def _build_feature_dataset(
     for member in zipf.infolist():
         filenames.append(member.filename.split("/")[-1])
         zipinfos.append(member)
-        label = 0 if "Normal" in member.filename else 1
+        label = 0. if "Normal" in member.filename else 1.
         labels.append(label)
 
     if mode == "test":
@@ -50,15 +50,15 @@ def _build_feature_dataset(
 
     return {
         "normal": FeatureDataset(
-            filenames=[name for i, name in enumerate(filenames) if labels[i] == 0],
-            zipinfos=[info for i, info in enumerate(zipinfos) if labels[i] == 0],
-            labels=[i for i in labels if i == 0],
+            filenames=[name for i, name in enumerate(filenames) if labels[i] == 0.],
+            zipinfos=[info for i, info in enumerate(zipinfos) if labels[i] == 0.],
+            labels=[i for i in labels if i == 0.],
             open_func=zipf.open,
         ),
         "abnormal": FeatureDataset(
-            filenames=[name for i, name in enumerate(filenames) if labels[i] == 1],
-            zipinfos=[info for i, info in enumerate(zipinfos) if labels[i] == 1],
-            labels=[i for i in labels if i == 1],
+            filenames=[name for i, name in enumerate(filenames) if labels[i] == 1.],
+            zipinfos=[info for i, info in enumerate(zipinfos) if labels[i] == 1.],
+            labels=[i for i in labels if i == 1.],
             open_func=zipf.open,
         ),
     }
