@@ -69,10 +69,12 @@ def build_feature_dataset(
 ):
     assert mode in ("train", "test")
     if local_path is None:
-        if filename is None:
+        if filename is not None:
             raise ValueError
         filepath = get_hf_hub_url(DEFAULT_FILENAMES[mode])
     else:
+        if filename is None:
+            raise ValueError
         filepath = os.path.join(local_path, filename)
 
     return _build_feature_dataset(filepath, mode, cache_dir)
