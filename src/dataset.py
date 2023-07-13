@@ -14,7 +14,7 @@ from torchvision import transforms
 from huggingface_hub import hf_hub_url
 from datasets import DownloadManager, DownloadConfig
 
-from . import gtransforms
+from .utils import gtransforms
 
 
 DEFAULT_FEATURE_HUB = "jinmang2/ucf_crime_tencrop_i3d_seg32"
