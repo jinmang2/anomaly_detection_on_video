@@ -101,9 +101,6 @@ class FeatureDataset(Dataset):
         labels: Optional[Dict[str, float]] = None,
         open_func: Optional[Callable] = None,
     ):
-        assert len(filenames) == len(values)
-        assert len(values) == len(labels)
-
         self.filenames = filenames
         self.values = values
         self.labels = labels
@@ -128,7 +125,7 @@ class FeatureDataset(Dataset):
         }
 
         if self.labels is not None:
-            outputs.update({"label": self.labels[idx]})
+            outputs.update({"label": self.labels[fname]})
 
         return outputs
 
