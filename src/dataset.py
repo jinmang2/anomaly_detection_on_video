@@ -3,18 +3,18 @@ import zipfile
 from PIL import Image
 from typing import Union, List, Optional, Callable, Dict
 
-import decord
-
 import numpy as np
 
 import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
 
+import decord
+
 from huggingface_hub import hf_hub_url
 from datasets import DownloadManager, DownloadConfig
 
-from .utils import gtransforms
+from . import gtransforms
 
 
 DEFAULT_FEATURE_HUB = "jinmang2/ucf_crime_tencrop_i3d_seg32"
@@ -33,15 +33,18 @@ def _build_feature_dataset(
     archive = dl_manager.download(filepath)
     zipf = zipfile.ZipFile(archive)
 
+    filenames = []
     zipinfos = []
     labels = []
     for member in zipf.infolist():
+        filenames.append(member.filename.split("/")[-1])
         zipinfos.append(member)
         label = 0 if "Normal" in member.filename else 1
         labels.append(label)
 
     if mode == "test":
         return FeatureDataset(
+            filenames=filenames,
             zipinfos=zipinfos,
             labels=labels,
             open_func=zipf.open,
@@ -49,11 +52,13 @@ def _build_feature_dataset(
 
     return {
         "normal": FeatureDataset(
+            filenames=[name for i, name in enumerate(filenames) if labels[i] == 0],
             zipinfos=[info for i, info in enumerate(zipinfos) if labels[i] == 0],
             labels=[i for i in labels if i == 0],
             open_func=zipf.open,
         ),
         "abnormal": FeatureDataset(
+            filenames=[name for i, name in enumerate(filenames) if labels[i] == 1],
             zipinfos=[info for i, info in enumerate(zipinfos) if labels[i] == 1],
             labels=[i for i in labels if i == 1],
             open_func=zipf.open,
@@ -87,12 +92,15 @@ def build_feature_dataset(
 class FeatureDataset(Dataset):
     def __init__(
         self,
+        filenames: List[str],
         zipinfos: List[zipfile.ZipInfo],
         labels: List[int],
         open_func: Callable,
     ):
+        assert len(filenames) == len(zipinfos)
         assert len(zipinfos) == len(labels)
 
+        self.filenames = filenames
         self.zipinfos = zipinfos
         self.labels = labels
 
@@ -106,6 +114,9 @@ class FeatureDataset(Dataset):
         feature = np.load(self.open(zipinfo))
         label = self.labels[idx]
         return feature, label
+    
+    def get_filename(self, idx: int) -> str:
+        return self.filenames[idx]
 
 
 class TenCropVideoFrameDataset(Dataset):
