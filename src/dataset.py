@@ -1,7 +1,7 @@
 import os
 import zipfile
 from PIL import Image
-from typing import Union, List, Optional, Callable, Dict
+from typing import Union, List, Optional, Callable, Dict, Tuple
 
 import numpy as np
 
@@ -107,7 +107,7 @@ class FeatureDataset(Dataset):
     def __len__(self) -> int:
         return len(self.zipinfos)
 
-    def __getitem__(self, idx: int) -> torch.Tensor:
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int]:
         zipinfo = self.zipinfos[idx]
         feature = np.load(self.open(zipinfo))
         label = self.labels[idx]
