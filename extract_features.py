@@ -41,6 +41,11 @@ def main(outdir: str = "/content/drive/MyDrive/ucf_crime"):
 
     extract(anomaly, model, device, outpath)
 
+    seg_length = 32
+    seg_outpath = os.path.join(outdir, f"segment_features_{seg_length}")
+    for mode in anomaly.keys():
+        segment(os.path.join(outpath, mode), seg_outpath, seg_length)
+
 
 def extract(
     dataset: Union[datasets.Dataset, datasets.DatasetDict],
@@ -100,7 +105,7 @@ def extract(
         if os.path.exists(savepath):
             continue
 
-        # If the size of the video is larger than 1GB, divide it by the segment length. 
+        # If the size of the video is larger than 1GB, divide it by the segment length.
         # After that, upload it to RAM and receive the tencrop result from the model.
         # Note That: The script below provides the result of converting bytes to killobytes.
         # https://huggingface.co/datasets/jinmang2/ucf_crime/blob/main/ucf_crime.py
@@ -145,6 +150,39 @@ def extract(
 
         # save
         np.save(savepath, outputs)
+
+
+def segment(feature_path: str, seg_outpath: str, seg_length: int = 32):
+    files = sorted(os.listdir(feature_path))
+    for file in tqdm(files):
+        if not file.endswith(".npy"):
+            continue
+
+        savepath = os.path.join(seg_outpath, file)
+        if os.path.exists(savepath):
+            continue
+
+        filepath = os.path.join(feature_path, file)
+        # (nclips, 10, 2048) -> (10, nclips, 2048)
+        features = np.load(filepath).transpose(1, 0, 2)
+
+        divided_features = []
+        divided_mag = []
+        for f in features:
+            new_feat = np.zeros((seg_length, f.shape[1])).astype(np.float32)
+            r = np.linspace(0, len(f), seg_length + 1, dtype=int)
+            for i in range(seg_length):
+                if r[i] != r[i + 1]:
+                    new_feat[i, :] = np.mean(f[r[i] : r[i + 1], :], 0)
+                else:
+                    new_feat[i, :] = f[r[i], :]
+            divided_features.append(new_feat)
+            divided_mag.append(np.linalg.norm(new_feat, axis=1)[:, np.newaxis])
+        divided_features = np.array(divided_features, dtype=np.float32)
+        divided_mag = np.array(divided_mag, dtype=np.float32)
+        divided_features = np.concatenate((divided_features, divided_mag), axis=2)
+
+        np.save(savepath, divided_features)
 
 
 if __name__ == "__main__":
