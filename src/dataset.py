@@ -1,7 +1,7 @@
 import os
 import zipfile
 from PIL import Image
-from typing import Union, List, Optional, Callable
+from typing import Union, List, Optional, Callable, Dict
 
 import decord
 
@@ -21,7 +21,11 @@ DEFAULT_FEATURE_HUB = "jinmang2/ucf_crime_tencrop_i3d_seg32"
 DEFAULT_FILENAMES = {"train": "train.zip", "test": "test.zip"}
 
 
-def _build_feature_dataset(filepath: str, mode: str, cache_dir: str):
+def _build_feature_dataset(
+    filepath: str,
+    mode: str,
+    cache_dir: str
+) -> Union[Dataset, Dict[str, Dataset]]:
     assert mode in ("train", "test")
 
     dl_config = DownloadConfig(cache_dir=cache_dir)
@@ -66,7 +70,7 @@ def build_feature_dataset(
     local_path: Optional[str] = None,
     filename: Optional[str] = None,
     cache_dir: Optional[str] = None,
-):
+) -> Union[Dataset, Dict[str, Dataset]]:
     assert mode in ("train", "test")
     if local_path is None:
         if filename is not None:
