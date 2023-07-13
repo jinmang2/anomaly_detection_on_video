@@ -1,4 +1,5 @@
 import os
+import json
 import zipfile
 from PIL import Image
 from typing import Union, List, Optional, Callable, Dict, Tuple
@@ -11,8 +12,7 @@ from torchvision import transforms
 
 import decord
 
-from huggingface_hub import hf_hub_url
-from datasets import DownloadManager, DownloadConfig
+from huggingface_hub import hf_hub_download
 
 from . import gtransforms
 
@@ -22,50 +22,52 @@ DEFAULT_FILENAMES = {"train": "train.zip", "test": "test.zip"}
 
 
 def _build_feature_dataset(
-    filepath: str, mode: str, cache_dir: str
+    filepath: str, mode: str, dynamic_load: bool
 ) -> Union[Dataset, Dict[str, Dataset]]:
     assert mode in ("train", "test")
 
-    dl_config = DownloadConfig(cache_dir=cache_dir)
-    dl_manager = DownloadManager(record_checksums=False, download_config=dl_config)
-    archive = dl_manager.download(filepath)
-    zipf = zipfile.ZipFile(archive)
+    zipf = zipfile.ZipFile(filepath)
 
     filenames = []
-    zipinfos = []
-    labels = []
+    values = {}
     for member in zipf.infolist():
-        filenames.append(member.filename.split("/")[-1])
-        zipinfos.append(member)
-        label = 0. if "Normal" in member.filename else 1.
-        labels.append(label)
+        filename = member.filename.split("/")[-1]
+        filenames.append(filename)
+        value = np.load(zipf.open(member)) if not dynamic_load else member
+        values[filename] = value
 
     if mode == "test":
+        gt_path = hf_hub_download(
+            repo_id=DEFAULT_FEATURE_HUB,
+            filename="ground_truth.json",
+            repo_type="dataset",
+            force_download=True,
+        )
+        gt = json.load(open(gt_path))
         return FeatureDataset(
             filenames=filenames,
-            zipinfos=zipinfos,
-            labels=labels,
-            open_func=zipf.open,
+            values=values,
+            labels=gt,
+            open_func=zipf.open if dynamic_load else None,
         )
 
-    return {
-        "normal": FeatureDataset(
-            filenames=[name for i, name in enumerate(filenames) if labels[i] == 0.],
-            zipinfos=[info for i, info in enumerate(zipinfos) if labels[i] == 0.],
-            labels=[i for i in labels if i == 0.],
-            open_func=zipf.open,
-        ),
-        "abnormal": FeatureDataset(
-            filenames=[name for i, name in enumerate(filenames) if labels[i] == 1.],
-            zipinfos=[info for i, info in enumerate(zipinfos) if labels[i] == 1.],
-            labels=[i for i in labels if i == 1.],
-            open_func=zipf.open,
-        ),
+    normal_filenames = [fname for fname in filenames if "Normal" in fname]
+    normal_kwargs = {
+        "filenames": normal_filenames,
+        "values": {fname: values[fname] for fname in normal_filenames},
+        "open_func": zipf.open if dynamic_load else None,
+    }
+    abnormal_filenames = [fname for fname in filenames if "Normal" not in fname]
+    abnormal_kwargs = {
+        "filenames": abnormal_filenames,
+        "values": {fname: values[fname] for fname in abnormal_filenames},
+        "open_func": zipf.open if dynamic_load else None,
     }
 
-
-def get_hf_hub_url(filename: str) -> str:
-    return hf_hub_url(DEFAULT_FEATURE_HUB, filename, repo_type="dataset")
+    return {
+        "normal": FeatureDataset(**normal_kwargs),
+        "abnormal": FeatureDataset(**abnormal_kwargs),
+    }
 
 
 def build_feature_dataset(
@@ -73,45 +75,62 @@ def build_feature_dataset(
     local_path: Optional[str] = None,
     filename: Optional[str] = None,
     cache_dir: Optional[str] = None,
+    dynamic_load: bool = True,
 ) -> Union[Dataset, Dict[str, Dataset]]:
     assert mode in ("train", "test")
-    if local_path is None:
-        if filename is not None:
-            raise ValueError
-        filepath = get_hf_hub_url(DEFAULT_FILENAMES[mode])
-    else:
-        if filename is None:
-            raise ValueError
+    assert sum([local_path is None, filename is None]) != 1
+
+    if local_path is None:  # filename is also None
+        filepath = hf_hub_download(
+            repo_id=DEFAULT_FEATURE_HUB,
+            filename=DEFAULT_FILENAMES[mode],
+            cache_dir=cache_dir,
+            repo_type="dataset",
+        )
+    else:  # local_path and filename aren't None
         filepath = os.path.join(local_path, filename)
 
-    return _build_feature_dataset(filepath, mode, cache_dir)
+    return _build_feature_dataset(filepath, mode, dynamic_load)
 
 
 class FeatureDataset(Dataset):
     def __init__(
         self,
         filenames: List[str],
-        zipinfos: List[zipfile.ZipInfo],
-        labels: List[int],
-        open_func: Callable,
+        values: Dict[str, Union[zipfile.ZipInfo, np.ndarray]],
+        labels: Optional[Dict[str, float]] = None,
+        open_func: Optional[Callable] = None,
     ):
-        assert len(filenames) == len(zipinfos)
-        assert len(zipinfos) == len(labels)
+        assert len(filenames) == len(values)
+        assert len(values) == len(labels)
 
         self.filenames = filenames
-        self.zipinfos = zipinfos
+        self.values = values
         self.labels = labels
 
-        self.open = open_func
+        self.open_func = open_func
 
     def __len__(self) -> int:
-        return len(self.zipinfos)
+        return len(self.values)
+
+    def open(self, value: Union[zipfile.ZipInfo, np.ndarray]) -> np.ndarray:
+        if self.open_func is None:
+            return value
+        # dynamic loading
+        return np.load(self.open_func(value))
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int]:
-        zipinfo = self.zipinfos[idx]
-        feature = np.load(self.open(zipinfo))
-        label = self.labels[idx]
-        return feature, label
+        fname = self.get_filename(idx)
+        feature = self.open(self.values[fname])
+        outputs = {
+            "feature": feature,
+            "anomaly": 0.0 if "Normal" in fname else 0.0,
+        }
+
+        if self.labels is not None:
+            outputs.update({"label": self.labels[idx]})
+
+        return outputs
 
     def get_filename(self, idx: int) -> str:
         return self.filenames[idx]
