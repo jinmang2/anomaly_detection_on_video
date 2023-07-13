@@ -1,8 +1,10 @@
 import os
 import json
-import decord
-from datasets import load_dataset
-from huggingface_hub import hf_hub_download
+import zipfile
+import numpy as np
+from tqdm import tqdm
+from datasets import DownloadManager, DownloadConfig
+from huggingface_hub import hf_hub_download, hf_hub_url
 
 
 temporal_annots_path = hf_hub_download(
@@ -22,18 +24,18 @@ with open(temporal_annots_path, "r") as f:
             "second_event": (s2, e2),
         }
 
-# decord.VideoReader 때문에 동작이 느림 (대략 6분)
-# n_frames 정보만 필요하기 때문에 이를 따로 저장해두면 될 것으로 보임
-drive_path = "/content/drive/MyDrive/ucf_crime"
-repo_id = "jinmang2/ucf_crime"
-anomaly = load_dataset(repo_id, "anomaly", cache_dir=drive_path)
+repo_id = "jinmang2/ucf_crime_tencrop_i3d_seg32"
+dl_config = DownloadConfig()
+dl_manager = DownloadManager(record_checksums=False, download_config=dl_config)
+archive = dl_manager.download(hf_hub_url(repo_id, "test.zip", repo_type="dataset"))
+zipf = zipfile.ZipFile(archive)
 
 ground_truths = {}
-for sample in anomaly["test"]:
-    n_frames = len(decord.VideoReader(sample["video_path"]))
-    num_frame = ((n_frames - 1) // 16 + 1) * 16  # padded
+for member in tqdm(zipf.infolist()):
+    features = np.load(zipf.open(member))
+    num_frame = features.shape[0] * 16
 
-    file = sample["video_path"].split("/")[-1].replace(".mp4", "")
+    file = member.filename.split("/")[-1].replace("_i3d.npy", "")
     annots_idx = temporal_annots[file]
     first_event = annots_idx["first_event"]
     second_event = annots_idx["second_event"]
@@ -49,12 +51,10 @@ for sample in anomaly["test"]:
 
     ground_truths[file] = gt
 
+savefolder = "/content/drive/MyDrive/ucf_crime/ground_truth"
+if not os.path.exists(savefolder):
+    os.makedirs(savefolder)
 
-output_path = "/content/drive/MyDrive/ucf_crime/ground_truth"
-
-if not os.path.exists(output_path):
-    os.makedirs(output_path)
-
-outpath = os.path.join(output_path, "ground_truth_ucf_crime.json")
-with open(outpath, "w") as f:
+savepath = os.path.join(savefolder, "ground_truth_ucf_crime.json")
+with open(savepath, "w") as f:
     json.dump(ground_truths, f)
