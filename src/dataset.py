@@ -62,10 +62,10 @@ def get_hf_hub_url(filename: str) -> str:
 
 
 def build_feature_dataset(
+    mode: str = "train",
     local_path: Optional[str] = None,
     filename: Optional[str] = None,
-    mode: str = "train",
-    cache_dir: str = "cache",
+    cache_dir: Optional[str] = None,
 ):
     assert mode in ("train", "test")
     if local_path is None:
@@ -87,7 +87,7 @@ class FeatureDataset(Dataset):
         labels: List[int],
         open_func: Callable,
     ):
-        assert len(zipinfos) != len(labels)
+        assert len(zipinfos) == len(labels)
 
         self.zipinfos = zipinfos
         self.labels = labels
