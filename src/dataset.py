@@ -121,7 +121,7 @@ class FeatureDataset(Dataset):
         feature = self.open(self.values[fname])
         outputs = {
             "feature": feature,
-            "anomaly": 0.0 if "Normal" in fname else 0.0,
+            "anomaly": 0.0 if "Normal" in fname else 1.0,
         }
 
         if self.labels is not None:
