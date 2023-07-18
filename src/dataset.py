@@ -115,12 +115,17 @@ class FeatureDataset(Dataset):
             return value
         # dynamic loading
         return np.load(self.open_func(value))
+    
+    def add_magnitude(self, feature: torch.Tensor) -> torch.Tensor:
+        magnitude = np.linalg.norm(feature, axis=2)[:, :, np.newaxis]
+        feature = np.concatenate((feature, magnitude), axis=2)
+        return feature
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int]:
         fname = self.get_filename(idx)
         feature = self.open(self.values[fname])
         outputs = {
-            "feature": feature,
+            "feature": self.add_magnitude(feature),
             "anomaly": 0.0 if "Normal" in fname else 1.0,
         }
 
