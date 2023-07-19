@@ -69,6 +69,7 @@ for epoch in tqdm(range(max_epochs), desc="Epochs"):
                 video=inputs, abnormal_labels=alabels, normal_labels=nlabels
             )
 
+            optimizer.zero_grad()
             outputs.loss.backward()
             optimizer.step()
 
