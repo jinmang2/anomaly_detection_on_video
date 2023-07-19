@@ -75,6 +75,7 @@ def build_feature_dataset(
     local_path: Optional[str] = None,
     filename: Optional[str] = None,
     cache_dir: Optional[str] = None,
+    revision: str = "main",
     dynamic_load: bool = True,
 ) -> Union[Dataset, Dict[str, Dataset]]:
     assert mode in ("train", "test")
@@ -85,6 +86,7 @@ def build_feature_dataset(
             repo_id=DEFAULT_FEATURE_HUB,
             filename=DEFAULT_FILENAMES[mode],
             cache_dir=cache_dir,
+            revision=revision,
             repo_type="dataset",
         )
     else:  # local_path and filename aren't None
