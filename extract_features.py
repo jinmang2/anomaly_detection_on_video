@@ -1,5 +1,6 @@
 import os
 from typing import Union
+from tqdm.auto import tqdm
 
 import datasets
 from datasets import load_dataset
@@ -15,25 +16,6 @@ import decord
 
 from src.i3d import build_i3d_feature_extractor
 from src.dataset import TenCropVideoFrameDataset
-
-
-def is_notebook():
-    try:
-        shell = get_ipython().__class__.__name__
-        if shell == "ZMQInteractiveShell":
-            return True  # Jupyter notebook or qtconsole
-        elif shell == "TerminalInteractiveShell":
-            return False  # Terminal running IPython
-        else:
-            return False  # Other type (?)
-    except NameError:
-        return False  # Probably standard Python interpreter
-    
-
-if is_notebook():
-    from tqdm.notebook import tqdm
-else:
-    from tqdm import tqdm
 
 
 def load_ucf_crime_dataset(
