@@ -18,11 +18,17 @@ from src.i3d import build_i3d_feature_extractor
 from src.dataset import TenCropVideoFrameDataset
 
 
+DEFAULT_REPO_ID = "jinmang2/ucf_crime"
+DEFAULT_DATASET_CONF_NAME = "anomaly"
+DEFAULT_CACHE_DIR = "/content/drive/MyDrive/ucf_crime"
+
+
 def load_ucf_crime_dataset(
-    repo_id: str = "jinmang2/ucf_crime",
-    cache_dir: str = "/content/drive/MyDrive/ucf_crime",
+    repo_id: str = DEFAULT_REPO_ID,
+    cache_dir: str = DEFAULT_CACHE_DIR,
+    config_name: str = DEFAULT_DATASET_CONF_NAME,
 ) -> datasets.DatasetDict:
-    return load_dataset(repo_id, "anomaly", cache_dir=cache_dir)
+    return load_dataset(repo_id, config_name, cache_dir=cache_dir)
 
 
 def load_feature_extraction_model(model_name: str = "i3d_8x8_r50") -> torch.nn.Module:
