@@ -51,7 +51,9 @@ def main(outdir: str = "/content/drive/MyDrive/ucf_crime"):
     seg_length = 32
     seg_outpath = os.path.join(outdir, f"segment_features_{seg_length}")
     for mode in anomaly.keys():
-        segment(os.path.join(outpath, mode), seg_outpath, seg_length)
+        # Apply segments only for the train dataset
+        if mode == "train":
+            segment(os.path.join(outpath, mode), seg_outpath, seg_length)
 
 
 def extract(
