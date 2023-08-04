@@ -51,7 +51,7 @@ def main(outdir: str = "/content/drive/MyDrive/ucf_crime"):
     seg_length = 32
     seg_outpath = os.path.join(outdir, f"segment_features_{seg_length}")
     # Apply segments only for the train dataset
-    segment(os.path.join(outpath, "train"), seg_outpath, seg_length)            
+    segment(os.path.join(outpath, "train"), seg_outpath, seg_length)
 
 
 def extract(
@@ -174,7 +174,6 @@ def segment(feature_path: str, seg_outpath: str, seg_length: int = 32):
         features = np.load(filepath).transpose(1, 0, 2)
 
         divided_features = []
-        divided_mag = []
         for f in features:
             new_feat = np.zeros((seg_length, f.shape[1])).astype(np.float32)
             r = np.linspace(0, len(f), seg_length + 1, dtype=int)
@@ -184,10 +183,7 @@ def segment(feature_path: str, seg_outpath: str, seg_length: int = 32):
                 else:
                     new_feat[i, :] = f[r[i], :]
             divided_features.append(new_feat)
-            divided_mag.append(np.linalg.norm(new_feat, axis=1)[:, np.newaxis])
         divided_features = np.array(divided_features, dtype=np.float32)
-        divided_mag = np.array(divided_mag, dtype=np.float32)
-        divided_features = np.concatenate((divided_features, divided_mag), axis=2)
 
         np.save(savepath, divided_features)
 
