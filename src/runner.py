@@ -1,9 +1,13 @@
-from typing import Dict, Any
+from typing import Dict, Any, List, Tuple
+
+from omegaconf.dictconfig import DictConfig
 
 import numpy as np
 from sklearn.metrics import auc, roc_curve, precision_recall_curve
 
 import torch
+from torch.utils.data import DataLoader
+
 import lightning.pytorch as pl
 
 from .dataset import build_feature_dataset
@@ -11,7 +15,7 @@ from .dataset import build_feature_dataset
 
 class VideoAnomalyDetectionRunner(pl.LightningModule):
     # lightning.pytorch.core.module.LightningModule
-    def __init__(self, model, optimizer, data):
+    def __init__(self, model: torch.nn.Module, optimizer: DictConfig, data: DictConfig):
         super().__init__()
         # `model` is an instance of `nn.Module` and is already saved during checkpointing.
         self.save_hyperparameters(ignore=["model"])
@@ -20,18 +24,20 @@ class VideoAnomalyDetectionRunner(pl.LightningModule):
         self.validation_step_outputs = []
 
     # lightning.pytorch.core.module.LightningModule
-    def training_step(self, batch, batch_idx):
+    def training_step(self, batch, batch_idx) -> torch.Tensor:
         ninputs, ainputs = batch
         inputs = torch.cat((ninputs["feature"], ainputs["feature"]), dim=0)
         nlabels = ninputs["anomaly"]
         alabels = ainputs["anomaly"]
-        outputs = self.model(video=inputs, abnormal_labels=alabels, normal_labels=nlabels)
+        outputs = self.model(
+            video=inputs, abnormal_labels=alabels, normal_labels=nlabels
+        )
         log_kwargs = dict(prog_bar=False, logger=True, on_step=True, on_epoch=False)
         self.log("train_loss", outputs.loss, **log_kwargs)
         return outputs.loss
 
     # lightning.pytorch.core.module.LightningModule
-    def validation_step(self, batch, batch_idx):
+    def validation_step(self, batch, batch_idx) -> None:
         features = batch["feature"].permute(0, 2, 1, 3)
         outputs = self.model(video=features)
         results = {
@@ -42,7 +48,7 @@ class VideoAnomalyDetectionRunner(pl.LightningModule):
         return None
 
     # lightning.pytorch.core.module.LightningModule
-    def configure_optimizers(self):
+    def configure_optimizers(self) -> List[torch.optim.Optimizer]:
         optimizer = torch.optim.Adam(
             self.model.parameters(),
             lr=self.hparams.optimizer.learning_rate,
@@ -66,8 +72,9 @@ class VideoAnomalyDetectionRunner(pl.LightningModule):
         rec_auc = auc(fpr, tpr)
         precision, recall, _ = precision_recall_curve(all_labels, all_preds)
         pr_auc = auc(recall, precision)
-        self.log("valid/rec_auc", rec_auc, prog_bar=False, logger=True, on_step=False, on_epoch=True)
-        self.log("valid/pr_auc", pr_auc, prog_bar=False, logger=True, on_step=False, on_epoch=True)
+        log_kwargs = dict(prog_bar=False, logger=True, on_step=False, on_epoch=True)
+        self.log("valid/rec_auc", rec_auc, **log_kwargs)
+        self.log("valid/pr_auc", pr_auc, **log_kwargs)
 
         self.validation_step_outputs.clear()
 
@@ -77,26 +84,28 @@ class VideoAnomalyDetectionRunner(pl.LightningModule):
             mode="train",
             revision=self.hparams.data.revision,
             cache_dir=self.hparams.data.cache_dir,
+            num_workers=self.hparams.data.num_workers,
             dynamic_load=self.hparams.data.dynamic_load,
         )
         self.valid_dataset = build_feature_dataset(
             mode="test",
             revision=self.hparams.data.revision,
             cache_dir=self.hparams.data.cache_dir,
+            num_workers=self.hparams.data.num_workers,
             dynamic_load=self.hparams.data.dynamic_load,
         )
 
     # lightning.pytorch.core.hooks.DataHooks
-    def train_dataloader(self):
+    def train_dataloader(self) -> Tuple[DataLoader, DataLoader]:
         return (
-            torch.utils.data.DataLoader(
+            DataLoader(
                 self.train_dataset["normal"],
                 batch_size=self.hparams.data.batch_size,
                 shuffle=False,
                 drop_last=True,
                 num_workers=self.hparams.data.num_workers,
             ),
-            torch.utils.data.DataLoader(
+            DataLoader(
                 self.train_dataset["abnormal"],
                 batch_size=self.hparams.data.batch_size,
                 shuffle=False,
@@ -106,8 +115,8 @@ class VideoAnomalyDetectionRunner(pl.LightningModule):
         )
 
     # lightning.pytorch.core.hooks.DataHooks
-    def val_dataloader(self):
-        return torch.utils.data.DataLoader(
+    def val_dataloader(self) -> DataLoader:
+        return DataLoader(
             self.valid_dataset,
             batch_size=1,
             shuffle=False,
