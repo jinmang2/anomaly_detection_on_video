@@ -2,6 +2,7 @@ defaults: [ _base ]
 
 logger:
   _target_: lightning.pytorch.loggers.wandb.WandbLogger
+  name: ${hydra:runtime.choice.data}-${hydra:runtime.choice.runner}-${hydra:runtime.choice.trainer}-${now:%Y%m%d-%H%M%S}
   project: anomaly_detection_on_video
   log_model: all
 
