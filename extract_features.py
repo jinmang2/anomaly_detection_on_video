@@ -36,14 +36,14 @@ def load_feature_extraction_model(model_name: str = "i3d_8x8_r50") -> torch.nn.M
     model.eval()
     if torch.cuda.is_available():
         model.cuda()
-    print(next(model.parameters()).device)
-    return model
+    device = next(model.parameters()).device
+    return model, device
 
 
 def main(outdir: str = "/content/drive/MyDrive/ucf_crime"):
     anomaly = load_ucf_crime_dataset()
-    model = load_feature_extraction_model()
-    device = next(model.parameters()).device
+    model, device = load_feature_extraction_model()
+    
     outpath = os.path.join(outdir, "anomaly_features")
 
     extract(anomaly, model, device, outpath)
@@ -85,8 +85,7 @@ def extract(
             inputs = inputs.permute(0, 1, 3, 2, 4, 5)
             crops = []
             for crop_idx in range(inputs.shape[1]):
-                crop = inputs[:, crop_idx]
-                crop = crop.to(device)
+                crop = inputs[:, crop_idx].to(device)
                 # (B, 3, 16, 224, 224) -> (B, 2048, 1, 1, 1)
                 crop = model(crop)
                 crops.append(crop.detach().cpu().numpy())
