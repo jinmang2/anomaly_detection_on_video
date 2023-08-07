@@ -41,11 +41,9 @@ def load_feature_extraction_model(model_name: str = "i3d_8x8_r50") -> torch.nn.M
 
 
 def main(outdir: str = "/content/drive/MyDrive/ucf_crime"):
+    outpath = os.path.join(outdir, "anomaly_features")
     anomaly = load_ucf_crime_dataset()
     model, device = load_feature_extraction_model()
-    
-    outpath = os.path.join(outdir, "anomaly_features")
-
     extract(anomaly, model, device, outpath)
 
     seg_length = 32
