@@ -84,14 +84,12 @@ class VideoAnomalyDetectionRunner(pl.LightningModule):
             mode="train",
             revision=self.hparams.data.revision,
             cache_dir=self.hparams.data.cache_dir,
-            num_workers=self.hparams.data.num_workers,
             dynamic_load=self.hparams.data.dynamic_load,
         )
         self.valid_dataset = build_feature_dataset(
             mode="test",
             revision=self.hparams.data.revision,
             cache_dir=self.hparams.data.cache_dir,
-            num_workers=self.hparams.data.num_workers,
             dynamic_load=self.hparams.data.dynamic_load,
         )
 
