@@ -23,14 +23,9 @@ def save_best_record(test_info, file_path):
 
 batch_size = 16
 max_epochs = 1000
-checkpoint_path = "/content/drive/MyDrive/ucf_crime/0713"
-
-revision = "main"
-
-if revision == "authors":
-    cache_dir = "/content/drive/MyDrive/ucf_crime/authors/cache"
-else:
-    cache_dir = "/content/drive/MyDrive/ucf_crime/i3d_seg/"
+revision = "tushar-n"
+checkpoint_path = "/content/drive/MyDrive/ucf_crime/0807"
+cache_dir = "/content/drive/MyDrive/ucf_crime/cache/"
 
 # @TODO: alignment
 train_dataset = build_feature_dataset(
