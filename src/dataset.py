@@ -118,12 +118,12 @@ class FeatureDataset(Dataset):
         # dynamic loading
         return np.load(self.open_func(value))
     
-    def add_magnitude(self, feature: torch.Tensor) -> torch.Tensor:
+    def add_magnitude(self, feature: np.ndarray) -> np.ndarray:
         magnitude = np.linalg.norm(feature, axis=2)[:, :, np.newaxis]
         feature = np.concatenate((feature, magnitude), axis=2)
         return feature
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int]:
+    def __getitem__(self, idx: int) -> Dict[str, np.ndarray]:
         fname = self.get_filename(idx)
         feature = self.open(self.values[fname])
         anomaly = 0.0 if "Normal" in fname else 1.0
@@ -133,8 +133,8 @@ class FeatureDataset(Dataset):
         }
 
         if self.labels is not None:
-            label = {"label": np.array(self.labels[fname], dtype=np.float32)}
-            outputs.update(label)
+            label = np.array(self.labels[fname], dtype=np.float32)
+            outputs.update({"label": label})
 
         return outputs
 
