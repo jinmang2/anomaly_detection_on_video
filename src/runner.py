@@ -6,8 +6,6 @@ from sklearn.metrics import auc, roc_curve, precision_recall_curve
 import torch
 import lightning.pytorch as pl
 
-import hydra
-
 from .dataset import build_feature_dataset
 
 
