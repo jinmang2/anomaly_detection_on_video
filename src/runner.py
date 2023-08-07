@@ -6,20 +6,18 @@ from sklearn.metrics import auc, roc_curve, precision_recall_curve
 import torch
 import lightning.pytorch as pl
 
+import hydra
+
 from .dataset import build_feature_dataset
-from .models.mgfn import MGFNConfig, MGFNForVideoAnomalyDetection
 
 
 class VideoAnomalyDetectionRunner(pl.LightningModule):
-    config_class = None
-    model_class = None
-
     # lightning.pytorch.core.module.LightningModule
     def __init__(self, model, optimizer, data):
         super().__init__()
-        self.save_hyperparameters()
-        model_config = self.config_class(**model)
-        self.model = self.model_class(model_config)
+        # `model` is an instance of `nn.Module` and is already saved during checkpointing.
+        self.save_hyperparameters(ignore=["model"])
+        self.model = model
 
         self.validation_step_outputs = []
 
@@ -124,8 +122,3 @@ class VideoAnomalyDetectionRunner(pl.LightningModule):
     # lightning.pytorch.core.hooks.CheckpointHooks
     def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
         pass
-
-
-class MGFNRunner(VideoAnomalyDetectionRunner):
-    config_class = MGFNConfig
-    model_class = MGFNForVideoAnomalyDetection

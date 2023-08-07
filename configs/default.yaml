@@ -1,0 +1,4 @@
+defaults:
+    - data: _base
+    - runner: _base
+    - trainer: _base
