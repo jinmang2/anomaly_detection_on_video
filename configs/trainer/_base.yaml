@@ -7,6 +7,8 @@ cls:
   log_every_n_steps: null
   precision: 32-true
 
+logger: null
+
 callbacks:
   - _target_: lightning.pytorch.callbacks.LearningRateMonitor
     logging_interval: step

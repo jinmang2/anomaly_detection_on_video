@@ -13,6 +13,7 @@ def main(args: omegaconf.DictConfig) -> None:
     runner = runner_cls(model=model, optimizer=args.runner.optimizer, data=args.data)
 
     # Pl.Trainer
+    logger = instantiate(args.trainer.logger)
     callbacks = [instantiate(callback) for callback in args.trainer.callbacks]
     trainer = instantiate(args.trainer.cls, callbacks=callbacks)
     
