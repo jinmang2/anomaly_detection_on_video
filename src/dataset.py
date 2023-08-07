@@ -126,13 +126,15 @@ class FeatureDataset(Dataset):
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int]:
         fname = self.get_filename(idx)
         feature = self.open(self.values[fname])
+        anomaly = 0.0 if "Normal" in fname else 1.0
         outputs = {
             "feature": self.add_magnitude(feature),
-            "anomaly": 0.0 if "Normal" in fname else 1.0,
+            "anomaly": np.array(anomaly, dtype=np.float32),
         }
 
         if self.labels is not None:
-            outputs.update({"label": self.labels[fname]})
+            label = {"label": np.array(self.labels[fname], dtype=np.float32)}
+            outputs.update(label)
 
         return outputs
 
