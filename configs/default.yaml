@@ -1,0 +1,9 @@
+defaults:
+  - _self_
+  - data: default
+  - runner: default
+  - trainer: default
+  - trainer/callbacks: all
+  - trainer/logger: all
+
+wandb_key: null

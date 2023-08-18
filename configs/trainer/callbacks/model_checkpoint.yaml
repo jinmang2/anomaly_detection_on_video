@@ -1,0 +1,9 @@
+model_checkpoint:
+  _target_: lightning.pytorch.callbacks.ModelCheckpoint
+  dirpath: checkpoints
+  save_last: true
+  save_top_k: 10
+  every_n_epochs: 10
+  monitor: rec_auc
+  mode: max
+  verbose: true

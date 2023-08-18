@@ -1,0 +1,8 @@
+cls: 
+  _target_: lightning.pytorch.Trainer
+  accelerator: auto
+  gradient_clip_val: null
+  max_steps: -1
+  max_epochs: 1000
+  log_every_n_steps: null
+  precision: 32-true
