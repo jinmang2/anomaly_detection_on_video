@@ -26,12 +26,12 @@ def main(args: omegaconf.DictConfig) -> None:
         if "wandb" == logger_name:
             login_wandb(args.wandb_key)
         loggers += [instantiate(logger)]
-    callbacks = [instantiate(callback) for callback in args.trainer.callbacks]
+    callbacks = []
+    for callback in args.trainer.callbacks.values():
+        callbacks += [instantiate(callback)]
     trainer = instantiate(
         args.trainer.cls, logger=loggers, callbacks=callbacks
     )
-    print(trainer)
-    return None
     
     # Training
     trainer.fit(model=runner)
