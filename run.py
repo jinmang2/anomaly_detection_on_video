@@ -21,13 +21,17 @@ def main(args: omegaconf.DictConfig) -> None:
     runner = runner_cls(model=model, optimizer=args.runner.optimizer, data=args.data)
 
     # Pl.Trainer
-    if "wandb" in args.trainer.logger._target_:
-        login_wandb(args.trainer.wandb_key)
-    logger = instantiate(args.trainer.logger)
+    loggers = []
+    for logger_name, logger in args.trainer.logger.items():
+        if "wandb" == logger_name:
+            login_wandb(args.wandb_key)
+        loggers += [instantiate(logger)]
     callbacks = [instantiate(callback) for callback in args.trainer.callbacks]
     trainer = instantiate(
-        args.trainer.cls, logger=logger, callbacks=callbacks
+        args.trainer.cls, logger=loggers, callbacks=callbacks
     )
+    print(trainer)
+    return None
     
     # Training
     trainer.fit(model=runner)

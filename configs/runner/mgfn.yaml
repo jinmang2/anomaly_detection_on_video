@@ -1,4 +1,4 @@
-defaults: [ _base ]
+defaults: [ default ]
 
 model_class: src.models.mgfn.modeling_mgfn.MGFNForVideoAnomalyDetection
 

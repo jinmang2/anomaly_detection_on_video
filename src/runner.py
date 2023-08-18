@@ -3,11 +3,13 @@ from typing import Dict, Any, List, Tuple
 from omegaconf.dictconfig import DictConfig
 
 import numpy as np
+import matplotlib.pyplot as plt
 from sklearn.metrics import auc, roc_curve, precision_recall_curve
 
 import torch
 from torch.utils.data import DataLoader
 
+import wandb
 import lightning.pytorch as pl
 
 from .dataset import build_feature_dataset
@@ -75,6 +77,15 @@ class VideoAnomalyDetectionRunner(pl.LightningModule):
         log_kwargs = dict(prog_bar=False, logger=True, on_step=False, on_epoch=True)
         self.log("valid/rec_auc", rec_auc, **log_kwargs)
         self.log("valid/pr_auc", pr_auc, **log_kwargs)
+
+        fig = plt.figure(figsize=(16, 4))
+        fig.set_facecolor("white")
+        ax1 = fig.add_subplot(1, 2, 1)
+        ax2 = fig.add_subplot(1, 2, 2)
+        ax1.plot(all_preds)
+        ax1.plot(np.array(all_labels), alpha=0.5)
+        ax2.plot(fpr, tpr)
+        self.logger.experiment.log({"chart": wandb.Image(fig)})
 
         self.validation_step_outputs.clear()
 
