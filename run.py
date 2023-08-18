@@ -29,10 +29,8 @@ def main(args: omegaconf.DictConfig) -> None:
     callbacks = []
     for callback in args.trainer.callbacks.values():
         callbacks += [instantiate(callback)]
-    trainer = instantiate(
-        args.trainer.cls, logger=loggers, callbacks=callbacks
-    )
-    
+    trainer = instantiate(args.trainer.cls, logger=loggers, callbacks=callbacks)
+
     # Training
     trainer.fit(model=runner)
 

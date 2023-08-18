@@ -294,7 +294,7 @@ class MGFNForVideoAnomalyDetection(MGFNPreTrainedModel):
         from abnormal and normal in the evaluation phase.
         """
         return self._force_split
-    
+
     @force_split.setter
     def force_split(self, val: bool):
         self._force_split = val
@@ -397,16 +397,16 @@ class MGFNForVideoAnomalyDetection(MGFNPreTrainedModel):
 
         (
             abnormal_scores,  # (bsz // 2, 1)
-            normal_scores,    # (bsz // 2, 1)
-            a_feat_magnitude, # (bsz // 2 * ncrops, topk, last_hidden_dim)
-            n_feat_magnitude, # (bsz // 2 * ncrops, topk, last_hidden_dim)
-            scores,           # (bsz, nclips, 1)
+            normal_scores,  # (bsz // 2, 1)
+            a_feat_magnitude,  # (bsz // 2 * ncrops, topk, last_hidden_dim)
+            n_feat_magnitude,  # (bsz // 2 * ncrops, topk, last_hidden_dim)
+            scores,  # (bsz, nclips, 1)
         ) = self.magnitude_selection_and_score_prediction(x, scores, bs, ncrops)
 
         loss = None
         if abnormal_labels is not None and normal_labels is not None:
             loss_smooth = TemporalSmoothnessLoss()(scores)
-            loss_sparsity = SparsityLoss()(scores[:bs // 2, :, :].view(-1))
+            loss_sparsity = SparsityLoss()(scores[: bs // 2, :, :].view(-1))
             loss_mgfn = MGFNLoss()(
                 abnormal_scores=abnormal_scores,
                 normal_scores=normal_scores,

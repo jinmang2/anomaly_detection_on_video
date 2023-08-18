@@ -117,7 +117,7 @@ class FeatureDataset(Dataset):
             return value
         # dynamic loading
         return np.load(self.open_func(value))
-    
+
     def add_magnitude(self, feature: np.ndarray) -> np.ndarray:
         magnitude = np.linalg.norm(feature, axis=2)[:, :, np.newaxis]
         feature = np.concatenate((feature, magnitude), axis=2)

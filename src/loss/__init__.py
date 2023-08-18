@@ -3,4 +3,4 @@ from .base import (  # noqa # pylint: disable=unused-import
     SparsityLoss,
     ContrastiveLoss,
 )
-from .mgfn import MGFNLoss # noqa # pylint: disable=unused-import
+from .mgfn import MGFNLoss  # noqa # pylint: disable=unused-import
